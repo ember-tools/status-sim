@@ -16,7 +16,7 @@ class TestHeartbeat(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_inactivity_removal(self):
-        resp = self.client.post("/leitstelle", json={"name": "Test"})
+        resp = self.client.post("/api/leitstelle", json={"name": "Test"})
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
 
@@ -35,7 +35,7 @@ class TestHeartbeat(unittest.TestCase):
         self.assertEqual(len(remaining), 0)
 
     def test_poll_updates_timestamp(self):
-        resp = self.client.post("/leitstelle", json={"name": "Test"})
+        resp = self.client.post("/api/leitstelle", json={"name": "Test"})
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
 

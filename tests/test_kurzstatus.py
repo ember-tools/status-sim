@@ -13,7 +13,7 @@ class TestKurzstatus(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_kurzstatus_flow(self):
-        resp = self.client.post("/leitstelle", json={"name": "Test Leitstelle"})
+        resp = self.client.post("/api/leitstelle", json={"name": "Test Leitstelle"})
         data = resp.json()
         admin_code = data["admin_code"]
         vehicle_code = data["vehicle_code"]

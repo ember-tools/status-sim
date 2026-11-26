@@ -13,7 +13,7 @@ class TestStaffelfuehrer(unittest.TestCase):
         self.client = TestClient(app)
 
     def _create(self):
-        resp = self.client.post("/leitstelle", json={"name": "Test Leitstelle"})
+        resp = self.client.post("/api/leitstelle", json={"name": "Test Leitstelle"})
         d = resp.json()
         return d["admin_code"], d["vehicle_code"], d["staffelfuehrer_code"]
 

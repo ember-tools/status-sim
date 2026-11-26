@@ -13,7 +13,7 @@ class TestScenarioSync(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_checklist_state_sync(self):
-        resp = self.client.post("/leitstelle", json={"name": "SyncTest"})
+        resp = self.client.post("/api/leitstelle", json={"name": "SyncTest"})
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
         sf_code = resp.json()["staffelfuehrer_code"]

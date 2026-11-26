@@ -197,7 +197,7 @@ async def get_status_page(request: Request, code: str, name: str):
 # Leitstelle management
 # ---------------------------------------------------------------------------
 
-@router.post("/leitstelle")
+@router.post("/api/leitstelle")
 async def create_leitstelle(request: LeitstelleCreateRequest):
     admin_code = str(uuid.uuid4())[:8].upper()
     vehicle_code = str(uuid.uuid4())[:8].upper()
@@ -253,6 +253,25 @@ async def get_status_info(code: str, name: str):
     if not admin_code:
         return _error("Invalid code")
     return {"status": "success", "leitstelle_name": ls.name}
+
+
+@router.get("/api/join/{code}")
+async def join(code: str, name: str = ""):
+    """Tell which role a code joins as, and for a vehicle whether its call sign is already online."""
+    admin_code, ls = _require_leitstelle(code)
+    if not admin_code:
+        return _error("Invalid code")
+    code_upper = code.upper()
+    if code_upper == admin_code:
+        return {"status": "success", "role": "dispatch", "name_taken": False}
+    if code_upper == ls.staffelfuehrer_code:
+        return {"status": "success", "role": "unit_leader", "name_taken": False}
+    existing = manager.find_connection(ls, name)
+    return {
+        "status": "success",
+        "role": "vehicle",
+        "name_taken": bool(existing and manager.is_online(existing)),
+    }
 
 
 # ---------------------------------------------------------------------------

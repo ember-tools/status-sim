@@ -1,188 +1,114 @@
 <script setup lang="ts">
-import { ref, computed, inject } from 'vue'
-import axios from 'axios'
-import type { VehicleStatus } from '../types'
-import { REFRESH_KEY } from '../composables/usePolling'
+import {computed, inject, ref} from 'vue'
+import {get, post} from '../api'
+import {REFRESH_KEY} from '../composables/useExercisePoll'
+import {exercisePath} from '../exercise'
+import {statusBorder} from '../status'
+import type {ChecklistState, VehicleStatus} from '../types'
+import ScenarioChecklist from './ScenarioChecklist.vue'
+import StatusBadge from './StatusBadge.vue'
 import Timer from './Timer.vue'
 import VehicleChatPanel from './VehicleChatPanel.vue'
-import StatusBadge from './StatusBadge.vue'
-import ScenarioChecklist from './ScenarioChecklist.vue'
 
+/**
+ * A vehicle in the dispatch view: status, special status, short status message and who handles it.
+ * Opened, it lets the dispatcher set the status, start or discard an incident, tick the scenario and
+ * write to the vehicle.
+ */
 const props = defineProps<{
   car: VehicleStatus
   adminCode: string
   lsName?: string
 }>()
 
-const refresh = inject(REFRESH_KEY, () => {})
-const isOpen = ref(false)
+const MANUAL_STATUSES = [
+  {status: '1', color: 'info'},
+  {status: '2', color: 'success'},
+  {status: '3', color: 'warning'},
+  {status: '4', color: 'error'},
+] as const
 
-const setStatus = async (status: string) => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/set_status`, {
-    target_name: props.car.name,
-    status,
-  })
+const refresh = inject(REFRESH_KEY, () => undefined)
+const open = ref(false)
+const path = computed(() => exercisePath(props.adminCode))
+const target = computed(() => ({target_name: props.car.name}))
+
+async function act(action: string, body: object = target.value): Promise<void> {
+  await post(`${path.value}/${action}`, body)
   refresh()
 }
 
-const clearSpecial = async () => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/clear_special`, { target_name: props.car.name })
-  refresh()
-}
-
-const clearKurzstatus = async () => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/clear_kurzstatus`, { target_name: props.car.name })
-  refresh()
-}
-
-const discardScenario = async () => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/scenario/discard`, { target_name: props.car.name })
-  refresh()
-}
-
-const newEinsatz = async () => {
-  if (props.car.active_scenario) {
-    await axios.post(`/api/leitstelle/${props.adminCode}/scenario/discard`, { target_name: props.car.name })
-  }
+/**
+ * Starts a new incident from a scenario the vehicle has not had yet, discarding the running one.
+ * When all are used up, a random one starts again.
+ */
+async function newIncident(): Promise<void> {
+  if (props.car.active_scenario) await post(`${path.value}/scenario/discard`, target.value)
   try {
-    const { data } = await axios.post(`/api/leitstelle/${props.adminCode}/scenario/next`, { target_name: props.car.name })
-    if (data.status === 'success' && data.scenario?.name) {
-      await axios.post(`/api/leitstelle/${props.adminCode}/scenario/start`, {
-        target_name: props.car.name,
-        scenario_name: data.scenario.name,
-      })
-      refresh()
-      return
-    }
-  } catch { /* fallback below */ }
-  const { data } = await axios.get(`/api/leitstelle/${props.adminCode}/scenarios`)
-  if (data.scenarios?.length) {
-    const random = data.scenarios[Math.floor(Math.random() * data.scenarios.length)]
-    await axios.post(`/api/leitstelle/${props.adminCode}/scenario/start`, {
-      target_name: props.car.name,
-      scenario_name: random.name,
-    })
+    const answer = await post<{ scenario: { name: string } }>(`${path.value}/scenario/next`, target.value)
+    await post(`${path.value}/scenario/start`, {...target.value, scenario_name: answer.scenario.name})
+  } catch {
+    const {scenarios} = await get<{ scenarios: { name: string }[] }>(`${path.value}/scenarios`)
+    const scenario = scenarios[Math.floor(Math.random() * scenarios.length)]
+    if (scenario) await post(`${path.value}/scenario/start`, {...target.value, scenario_name: scenario.name})
   }
   refresh()
 }
 
-const claimVehicle = async () => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/claim`, {
-    target_name: props.car.name,
-    sf_name: props.lsName,
-  })
-  refresh()
-}
-
-const unclaimVehicle = async () => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/unclaim`, { target_name: props.car.name })
-  refresh()
-}
-
-const borderClass = computed(() => {
-  switch (props.car.status) {
-    case '1': return 'border-l-info'
-    case '2': return 'border-l-success'
-    case '3': return 'border-l-warning'
-    case '4': return 'border-l-danger'
-    default: return 'border-l-gray-600'
-  }
-})
-
-const updateChecklistState = async (state: any) => {
-  await axios.post(`/api/leitstelle/${props.adminCode}/scenario/update_state`, {
-    target_name: props.car.name,
-    state,
-  })
-  refresh()
+function updateChecklist(state: ChecklistState): void {
+  void act('scenario/update_state', {...target.value, state})
 }
 </script>
 
 <template>
-  <div class="card mb-2 p-2.5 px-3.5 flex flex-col border-l-[5px]" :class="borderClass">
-    <div class="flex items-center justify-between w-full cursor-pointer gap-2.5" @click="isOpen = !isOpen">
-      <div class="flex items-center gap-2.5">
-        <StatusBadge :status="car.status" />
-        <span class="font-bold whitespace-nowrap overflow-hidden text-ellipsis max-w-[150px]" :title="car.name">{{ car.name }}</span>
-
-        <div v-if="car.next_todo" class="bg-themed-input border border-themed px-2 py-0.5 rounded text-xs text-themed-muted font-bold">
-          {{ car.next_todo }}
-        </div>
-
-        <div v-if="car.kurzstatus" class="text-sm bg-info/10 p-1.5 px-2.5 rounded flex gap-2.5 items-center whitespace-nowrap">
+  <div class="mb-2 flex flex-col rounded-sm border border-l-[5px] border-default bg-default px-3.5 py-2.5" :class="statusBorder(car.status)">
+    <div class="flex w-full flex-wrap items-center justify-between gap-2.5">
+      <div class="flex flex-wrap items-center gap-2.5">
+        <button type="button" class="flex items-center gap-2.5 text-left" :aria-expanded="open" @click="open = !open">
+          <StatusBadge :status="car.status"/>
+          <span class="max-w-[150px] truncate font-bold" :title="car.name">{{ car.name }}</span>
+          <UIcon :name="open ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-4 text-muted"/>
+        </button>
+        <UBadge v-if="car.next_todo" color="neutral" variant="outline">{{ car.next_todo }}</UBadge>
+        <div v-if="car.kurzstatus" class="flex items-center gap-2.5 whitespace-nowrap rounded-sm bg-info/10 px-2.5 py-1 text-sm">
           <span class="font-bold text-info">K:</span>
           <span>{{ car.kurzstatus }}</span>
-          <button @click.stop="clearKurzstatus" class="btn btn-info p-0.5 px-2 text-xs">OK</button>
+          <UButton size="xs" color="info" @click="act('clear_kurzstatus')">OK</UButton>
         </div>
-
-        <div v-if="car.talking_to_sf" class="bg-danger text-white p-1 px-2.5 rounded text-sm font-bold flex items-center gap-2">
+        <div v-if="car.talking_to_sf" class="flex items-center gap-2 rounded-sm bg-signal px-2.5 py-1 text-sm font-bold text-white">
           <span>SF</span>
-          <Timer :timestamp="car.talking_to_sf_since" :active="true" class="!text-white bg-black/20 p-0.5 px-1 rounded" />
+          <Timer :timestamp="car.talking_to_sf_since" :active="true" class="rounded-sm bg-black/20 px-1 !text-white"/>
         </div>
-
-        <div v-if="car.ls_claimed_by" class="text-[10px] text-primary-light uppercase tracking-tighter">
-          LS: {{ car.ls_claimed_by }}
-        </div>
+        <span v-if="car.ls_claimed_by" class="text-[10px] uppercase tracking-tight text-muted">LS: {{ car.ls_claimed_by }}</span>
       </div>
-
       <div class="flex items-center gap-4">
-        <div v-if="lsName" class="flex gap-1.5">
-          <button
-            v-if="!car.ls_claimed_by"
-            @click.stop="claimVehicle"
-            class="btn bg-primary/80 text-white p-1 px-2.5 text-xs"
-          >
-            Übernehmen
-          </button>
-          <button
-            v-else-if="car.ls_claimed_by === lsName"
-            @click.stop="unclaimVehicle"
-            class="btn bg-danger/80 text-white p-1 px-2.5 text-xs"
-          >
-            Freigeben
-          </button>
+        <template v-if="lsName">
+          <UButton v-if="!car.ls_claimed_by" size="xs" @click="act('claim', {...target, sf_name: lsName})">Übernehmen</UButton>
+          <UButton v-else-if="car.ls_claimed_by === lsName" size="xs" color="neutral" variant="outline" @click="act('unclaim')">Freigeben</UButton>
+        </template>
+        <div v-if="car.special" class="flex items-center gap-2 rounded-sm bg-warning px-3 py-1 text-sm font-extrabold uppercase text-ink">
+          <span>{{ car.special === '0' ? '0 Blitz' : '5 Spr-W' }}</span>
+          <Timer :timestamp="car.special === '0' ? car.last_blitz_update : car.last_sprechwunsch_update" :active="true" class="!text-ink"/>
+          <UButton size="xs" color="error" icon="i-lucide-x" aria-label="Sprechwunsch löschen" @click="act('clear_special')"/>
         </div>
-        <div v-if="car.special" class="bg-accent text-black font-extrabold uppercase text-sm p-1.5 px-3 rounded shadow-[0_0_10px_var(--accent-color)] flex items-center gap-2">
-          <span>{{ car.special === '0' ? '0 BLITZ' : '5 SPR-W' }}</span>
-          <Timer :timestamp="car.special === '0' ? car.last_blitz_update : car.last_sprechwunsch_update" :active="true" class="!text-black" />
-          <button @click.stop="clearSpecial" class="btn btn-danger p-1 px-2.5 text-sm">X</button>
-        </div>
-        <Timer :timestamp="car.last_status_update" :active="car.is_online" />
+        <Timer :timestamp="car.last_status_update" :active="car.is_online"/>
       </div>
     </div>
 
-    <div v-if="isOpen" class="mt-2.5 pt-2.5 border-t border-themed w-full">
-      <div class="flex flex-col gap-2.5 items-center justify-between">
-        <div class="flex gap-2 w-full">
-          <button @click="setStatus('1')" class="btn btn-info flex-1 p-2 py-1.5 text-sm font-extrabold">1</button>
-          <button @click="setStatus('2')" class="btn btn-success flex-1 p-2 py-1.5 text-sm font-extrabold">2</button>
-          <button @click="setStatus('3')" class="btn btn-warning flex-1 p-2 py-1.5 text-sm font-extrabold">3</button>
-          <button @click="setStatus('4')" class="btn btn-danger flex-1 p-2 py-1.5 text-sm font-extrabold">4</button>
-        </div>
-
-        <div class="w-full flex gap-2">
-          <button v-if="!car.active_scenario" @click="newEinsatz" class="btn btn-primary flex-1 p-2">Einsatz erstellen</button>
-          <button v-else @click="discardScenario" class="btn btn-danger flex-1 p-2">Einsatz verwerfen</button>
-          <button @click="newEinsatz" class="btn btn-secondary flex-1 p-2">Neuer Einsatz</button>
-        </div>
-
-        <ScenarioChecklist
-          v-if="car.active_scenario"
-          :scenario="car.active_scenario"
-          :checklist-state="car.checklist_state"
-          @update:state="updateChecklistState"
-          class="w-full"
-        />
-
-        <VehicleChatPanel
-          :code="adminCode"
-          :target-name="car.name"
-          :note="car.note"
-          :notes-enabled="true"
-          sender-label="LS"
-          class="w-full"
-        />
+    <div v-if="open" class="mt-2.5 flex w-full flex-col gap-2.5 border-t border-default pt-2.5">
+      <div class="flex w-full gap-2">
+        <UButton v-for="manual in MANUAL_STATUSES" :key="manual.status" :color="manual.color" class="tabular flex-1 justify-center font-extrabold"
+                 :aria-label="`Status ${manual.status} setzen`" @click="act('set_status', {...target, status: manual.status})">
+          {{ manual.status }}
+        </UButton>
       </div>
+      <div class="flex w-full gap-2">
+        <UButton v-if="!car.active_scenario" class="flex-1 justify-center" icon="i-lucide-siren" @click="newIncident">Einsatz erstellen</UButton>
+        <UButton v-else class="flex-1 justify-center" color="error" variant="outline" icon="i-lucide-trash-2" @click="act('scenario/discard')">Einsatz verwerfen</UButton>
+        <UButton class="flex-1 justify-center" color="neutral" variant="outline" icon="i-lucide-refresh-cw" @click="newIncident">Neuer Einsatz</UButton>
+      </div>
+      <ScenarioChecklist v-if="car.active_scenario" :scenario="car.active_scenario" :checklist-state="car.checklist_state" @update:state="updateChecklist"/>
+      <VehicleChatPanel :code="adminCode" :target-name="car.name" :note="car.note"/>
     </div>
   </div>
 </template>

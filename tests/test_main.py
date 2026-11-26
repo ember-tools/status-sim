@@ -13,7 +13,7 @@ class TestLeitstelle(unittest.TestCase):
         self.client = TestClient(app)
 
     def _create(self, name="Test"):
-        resp = self.client.post("/leitstelle", json={"name": name})
+        resp = self.client.post("/api/leitstelle", json={"name": name})
         d = resp.json()
         return d["admin_code"], d["vehicle_code"], d["staffelfuehrer_code"]
 
@@ -28,7 +28,7 @@ class TestLeitstelle(unittest.TestCase):
         return self.client.post(f"/api/vehicle/{code}/action", json=body)
 
     def test_create_leitstelle(self):
-        response = self.client.post("/leitstelle", json={"name": "Test Leitstelle"})
+        response = self.client.post("/api/leitstelle", json={"name": "Test Leitstelle"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "success")
         self.assertIn("admin_code", response.json())
@@ -147,3 +147,26 @@ class TestLeitstelle(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestJoin(unittest.TestCase):
+    def setUp(self):
+        self.client = TestClient(app)
+        data = self.client.post("/api/leitstelle", json={"name": "Join"}).json()
+        self.admin, self.vehicle, self.sf = data["admin_code"], data["vehicle_code"], data["staffelfuehrer_code"]
+
+    def _join(self, code, name="LHF 1"):
+        return self.client.get(f"/api/join/{code}", params={"name": name}).json()
+
+    def test_each_code_names_its_role(self):
+        self.assertEqual(self._join(self.admin)["role"], "dispatch")
+        self.assertEqual(self._join(self.sf)["role"], "unit_leader")
+        self.assertEqual(self._join(self.vehicle.lower())["role"], "vehicle")
+
+    def test_online_call_sign_is_taken(self):
+        self.client.get(f"/api/poll/{self.vehicle}", params={"name": "LHF 1"})
+        self.assertTrue(self._join(self.vehicle, "LHF 1")["name_taken"])
+        self.assertFalse(self._join(self.vehicle, "LHF 2")["name_taken"])
+
+    def test_unknown_code_is_refused(self):
+        self.assertEqual(self._join("NOPE")["status"], "error")

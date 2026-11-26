@@ -13,7 +13,7 @@ class TestScenario(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_scenario_start_and_discard(self):
-        resp = self.client.post("/leitstelle", json={"name": "ScenarioTest"})
+        resp = self.client.post("/api/leitstelle", json={"name": "ScenarioTest"})
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
 

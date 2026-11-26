@@ -1,49 +1,37 @@
 <script setup lang="ts">
+/**
+ * The status keypad of a vehicle radio: digits 1 to 9 and 0, with `*` and `#` as blanks. The
+ * current status lights green, a special status (0 flash, 5 request to talk) amber, and a key just
+ * pressed blue until the server answers.
+ */
 const props = defineProps<{
-  status?: string | null;
-  special?: string | null;
-  lastPressed?: string | null;
-}>();
+  status?: string | null
+  special?: string | null
+  lastPressed?: string | null
+}>()
 
-const emit = defineEmits<{
-  (e: 'press', key: string): void;
-}>();
+const emit = defineEmits<{ press: [key: string] }>()
 
-const keys = ['1','2','3','4','5','6','7','8','9'];
+const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
+const BLANKS = new Set(['*', '#'])
 
-const pressKey = (key: string) => {
-  emit('press', key);
-};
+const BASE = 'flex aspect-square items-center justify-center rounded-xl border-2 text-lg font-extrabold transition-all'
 
-const keyClass = (key: string) => [
-  (props.status === key || props.special === key || (props.lastPressed === key && props.status !== key && props.special !== key))
-    ? ''
-    : 'keypad-idle',
-  {
-    'bg-success text-white border-success shadow-[0_0_20px_rgba(46,125,50,0.5)] hover:bg-success hover:border-success': props.status === key,
-    'bg-accent text-black border-accent shadow-[0_0_20px_rgba(255,152,0,0.5)] hover:bg-accent hover:border-accent': props.special === key,
-    'bg-primary text-white border-primary shadow-[0_0_20px_rgba(33,150,243,0.45)] hover:bg-primary hover:border-primary': props.lastPressed === key && props.status !== key && props.special !== key
-  }
-];
+function keyClass(key: string): string {
+  if (props.status === key) return 'border-success bg-success text-white'
+  if (props.special === key) return 'border-warning bg-warning text-ink'
+  if (props.lastPressed === key) return 'border-info bg-info text-white'
+  return 'border-default bg-elevated text-muted hover:bg-accented'
+}
 </script>
 
 <template>
-  <div class="grid grid-cols-3 gap-2.5 mx-auto w-full max-w-[300px] mb-4">
-    <div v-for="n in keys" :key="n"
-         @click="pressKey(n)"
-         class="aspect-square flex flex-col items-center justify-center text-lg font-extrabold rounded-xl border-2 cursor-pointer transition-all"
-         :class="keyClass(n)"
-    >
-      {{ n }}
-    </div>
-    <div class="aspect-square flex items-center justify-center text-lg font-extrabold rounded-xl border-2 keypad-idle">*</div>
-    <div
-      @click="pressKey('0')"
-      class="aspect-square flex flex-col items-center justify-center text-lg font-extrabold rounded-xl border-2 cursor-pointer transition-all"
-      :class="keyClass('0')"
-    >
-      0
-    </div>
-    <div class="aspect-square flex items-center justify-center text-lg font-extrabold rounded-xl border-2 keypad-idle">#</div>
+  <div class="mx-auto mb-4 grid w-full max-w-[300px] grid-cols-3 gap-2.5">
+    <template v-for="key in KEYS" :key="key">
+      <span v-if="BLANKS.has(key)" :class="[BASE, 'border-default bg-elevated text-dimmed']" aria-hidden="true">{{ key }}</span>
+      <button v-else type="button" :class="[BASE, keyClass(key)]" :aria-pressed="status === key || special === key" @click="emit('press', key)">
+        {{ key }}
+      </button>
+    </template>
   </div>
 </template>
