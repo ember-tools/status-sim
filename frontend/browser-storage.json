@@ -15,6 +15,42 @@
       "purpose": "Ob die Seite hell oder dunkel erscheint.",
       "kind": "LOCAL_STORAGE",
       "source": "@emberbox/ui"
+    },
+    {
+      "key": "ls_name_*",
+      "purpose": "Früher je Übung der Name des Disponenten; wird beim Start gelöscht.",
+      "kind": "LOCAL_STORAGE",
+      "retired": true
+    },
+    {
+      "key": "ls_channel_*",
+      "purpose": "Früher je Übung der Funkkanal des Disponenten; wird beim Start gelöscht.",
+      "kind": "LOCAL_STORAGE",
+      "retired": true
+    },
+    {
+      "key": "ls_combine_*",
+      "purpose": "Früher je Übung, ob die Leitstelle Sprechwünsche zusammenfasst; wird beim Start gelöscht.",
+      "kind": "LOCAL_STORAGE",
+      "retired": true
+    },
+    {
+      "key": "sf_name_*",
+      "purpose": "Früher je Übung der Name des Staffelführers; wird beim Start gelöscht.",
+      "kind": "LOCAL_STORAGE",
+      "retired": true
+    },
+    {
+      "key": "radio_channel_*",
+      "purpose": "Früher je Übung der Funkkanal des Staffelführers; wird beim Start gelöscht.",
+      "kind": "LOCAL_STORAGE",
+      "retired": true
+    },
+    {
+      "key": "theme",
+      "purpose": "Früher die Farbgebung der Seite (hell oder dunkel); wird beim Start gelöscht.",
+      "kind": "LOCAL_STORAGE",
+      "retired": true
     }
   ]
 }

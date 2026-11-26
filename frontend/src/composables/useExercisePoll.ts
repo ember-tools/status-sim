@@ -1,4 +1,5 @@
-import {type InjectionKey, onBeforeUnmount, onMounted, ref} from 'vue'
+import {usePolling} from '@emberbox/ui'
+import {type InjectionKey, ref} from 'vue'
 import {get} from '../api'
 import type {StatusUpdate} from '../types'
 
@@ -9,13 +10,17 @@ export const REFRESH_KEY = Symbol('refresh') as InjectionKey<() => void>
 const MAX_INTERVAL_MS = 10_000
 
 /**
- * Polls the state of an exercise every two seconds. Each poll is also the heartbeat by which the
- * backend shows the caller as online, so unlike `usePolling` from `@emberbox/ui` it keeps polling
- * while the tab is hidden: a vehicle that stops polling for five minutes is removed with its status.
- *
- * Never more than one request runs at a time; a `refresh` during a running request queues exactly
- * one more after it, so a change is never shown late. While the server cannot be reached, the wait
- * doubles up to ten seconds; the first answer brings it back to the interval.
+ * The wait between two polls while the tab is hidden. Each poll is the heartbeat by which the
+ * backend shows the caller as online for fifteen seconds and removes a caller silent for five
+ * minutes, so a hidden tab keeps polling, below the fifteen seconds; browsers stretch this to about
+ * a minute in tabs hidden for long.
+ */
+const HIDDEN_INTERVAL_MS = 10_000
+
+/**
+ * Polls the state of an exercise every two seconds, and every ten while the tab is hidden. While
+ * the server cannot be reached, the wait doubles up to ten seconds; the first answer brings it back
+ * to the interval. One poll runs at a time; a `refresh` during a running poll queues one more.
  *
  * @param code the code the caller joined with
  * @param name the caller's name, which the backend registers as connection
@@ -24,59 +29,10 @@ const MAX_INTERVAL_MS = 10_000
  */
 export function useExercisePoll(code: string, name: () => string | undefined, intervalMs = 2000) {
     const state = ref<StatusUpdate | null>(null)
-    const connected = ref(false)
-    let timer: ReturnType<typeof setTimeout> | undefined
-    let delay = intervalMs
-    let active = false
-    let running = false
-    let again = false
-
-    async function request(): Promise<void> {
+    const {connected, refresh} = usePolling(async () => {
         const callerName = name()
         const update = await get<StatusUpdate>(`/api/poll/${encodeURIComponent(code)}`, callerName ? {name: callerName} : {})
         if (update.type === 'status_update') state.value = update
-    }
-
-    async function poll(): Promise<void> {
-        if (running) {
-            again = true
-            return
-        }
-        running = true
-        clearTimeout(timer)
-        try {
-            await request()
-            connected.value = true
-            delay = intervalMs
-        } catch {
-            connected.value = false
-            delay = Math.min(delay * 2, MAX_INTERVAL_MS)
-        } finally {
-            running = false
-        }
-        if (!active) return
-        if (again) {
-            again = false
-            void poll()
-            return
-        }
-        timer = setTimeout(() => void poll(), delay)
-    }
-
-    function refresh(): void {
-        void poll()
-    }
-
-    onMounted(() => {
-        active = true
-        void poll()
-    })
-
-    onBeforeUnmount(() => {
-        active = false
-        again = false
-        clearTimeout(timer)
-    })
-
+    }, {intervalMs, maxIntervalMs: MAX_INTERVAL_MS, hiddenIntervalMs: HIDDEN_INTERVAL_MS})
     return {state, connected, refresh}
 }
