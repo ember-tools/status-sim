@@ -18,9 +18,9 @@ const BLANKS = new Set(['*', '#'])
 const BASE = 'flex aspect-square items-center justify-center rounded-xl border-2 text-lg font-extrabold transition-all'
 
 function keyClass(key: string): string {
-  if (props.status === key) return 'border-success bg-success text-white'
+  if (props.status === key) return 'border-success bg-success text-inverted'
   if (props.special === key) return 'border-warning bg-warning text-ink'
-  if (props.lastPressed === key) return 'border-info bg-info text-white'
+  if (props.lastPressed === key) return 'border-info bg-info text-inverted'
   return 'border-default bg-elevated text-muted hover:bg-accented'
 }
 </script>

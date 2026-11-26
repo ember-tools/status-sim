@@ -75,9 +75,9 @@ function updateChecklist(state: ChecklistState): void {
           <span>{{ car.kurzstatus }}</span>
           <UButton size="xs" color="info" @click="act('clear_kurzstatus')">OK</UButton>
         </div>
-        <div v-if="car.talking_to_sf" class="flex items-center gap-2 rounded-sm bg-signal px-2.5 py-1 text-sm font-bold text-white">
+        <div v-if="car.talking_to_sf" class="flex items-center gap-2 rounded-sm bg-signal px-2.5 py-1 text-sm font-bold text-inverted">
           <span>SF</span>
-          <Timer :timestamp="car.talking_to_sf_since" :active="true" class="rounded-sm bg-black/20 px-1 !text-white"/>
+          <Timer :timestamp="car.talking_to_sf_since" :active="true" class="rounded-sm bg-inverted/20 px-1 !text-inverted"/>
         </div>
         <span v-if="car.ls_claimed_by" class="text-[10px] uppercase tracking-tight text-muted">LS: {{ car.ls_claimed_by }}</span>
       </div>

@@ -51,9 +51,9 @@ const open = ref(false)
           <span>{{ notice.status === 'confirmed' ? 'Spricht' : 'Angefragt' }}</span>
           <UButton v-if="notice.status === 'confirmed'" size="xs" color="success" @click="emit('finish')">Fertig</UButton>
         </div>
-        <div v-if="car.talking_to_sf" class="flex items-center gap-2 rounded-sm bg-signal px-2.5 py-1 text-sm font-bold text-white">
+        <div v-if="car.talking_to_sf" class="flex items-center gap-2 rounded-sm bg-signal px-2.5 py-1 text-sm font-bold text-inverted">
           <span>Aktiv</span>
-          <Timer :timestamp="car.talking_to_sf_since" :active="true" class="rounded-sm bg-black/20 px-1 !text-white"/>
+          <Timer :timestamp="car.talking_to_sf_since" :active="true" class="rounded-sm bg-inverted/20 px-1 !text-inverted"/>
         </div>
       </div>
       <div class="flex gap-2">

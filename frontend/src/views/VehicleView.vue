@@ -101,18 +101,18 @@ function press(key: string): void {
       <UBadge v-if="me?.sf_radio_channel" color="success" variant="soft" size="lg" class="tabular">SF {{ me.claimed_by }}: {{ me.sf_radio_channel }}</UBadge>
     </div>
 
-    <div v-if="notice?.status === 'pending'" class="flex animate-pulse flex-col gap-3 rounded-sm bg-signal p-4 text-white" role="alert">
+    <div v-if="notice?.status === 'pending'" class="flex animate-pulse flex-col gap-3 rounded-sm bg-signal p-4 text-inverted" role="alert">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <span class="text-lg font-bold uppercase tracking-widest">{{ notice.text }}</span>
         <UButton color="success" size="lg" @click="act('confirm_notice')">Kanal gewechselt</UButton>
       </div>
-      <div v-if="me?.radio_channel" class="flex items-center justify-center gap-2 rounded-sm bg-black/30 p-2">
+      <div v-if="me?.radio_channel" class="flex items-center justify-center gap-2 rounded-sm bg-inverted/30 p-2">
         <span class="text-sm font-medium">Neuer Funkkanal:</span>
         <span class="tabular text-xl font-black">{{ me.radio_channel }}</span>
       </div>
     </div>
-    <div v-else-if="notice || me?.talking_to_sf" class="flex items-center gap-2.5 rounded-sm bg-success p-4 font-bold uppercase tracking-widest text-white">
-      <span class="size-3 animate-ping rounded-full bg-white"/>
+    <div v-else-if="notice || me?.talking_to_sf" class="flex items-center gap-2.5 rounded-sm bg-success p-4 font-bold uppercase tracking-widest text-inverted">
+      <span class="size-3 animate-ping rounded-full bg-current"/>
       <span>Spricht mit Staffelführer</span>
     </div>
 
