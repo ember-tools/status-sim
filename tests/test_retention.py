@@ -195,3 +195,30 @@ def test_an_expired_exercise_is_gone_for_every_code(clock, redis, server):
     assert server.get(f"/api/poll/{codes['vehicle_code']}").json()["status"] == "error"
     assert server.get(f"/api/join/{codes['staffelfuehrer_code']}").json()["status"] == "error"
     assert server.get(f"/leitstelle/{codes['admin_code']}", follow_redirects=False).status_code == 307
+
+
+def test_dropping_stale_connections_is_no_access(clock, redis):
+    target = ConnectionManager()
+    target._redis = redis
+    _add(target)
+    asyncio.run(target.persist("ADMIN"))
+    target.leitstellen["ADMIN"].connections.append(
+        manager_module.Connection(name="Car1", last_update=clock.now, last_status_update=clock.now, last_activity=clock.now)
+    )
+    clock.now += 2 * DAY
+    asyncio.run(target.cleanup_inactive())
+    assert target.leitstellen["ADMIN"].connections == []
+    assert target.last_access["ADMIN"] == clock.now - 2 * DAY
+    assert asyncio.run(redis.ttl(f"{REDIS_KEY_PREFIX}ADMIN")) == RETENTION_SECONDS - 2 * DAY
+    clock.now += RETENTION_SECONDS - 2 * DAY
+    asyncio.run(target.expire_stale())
+    assert target.leitstellen == {}
+
+
+def test_an_access_writes_back_an_exercise_whose_key_is_gone(clock, redis):
+    target = ConnectionManager()
+    target._redis = redis
+    _add(target)
+    asyncio.run(target.touch("ADMIN"))
+    assert asyncio.run(redis.ttl(f"{REDIS_KEY_PREFIX}ADMIN")) == RETENTION_SECONDS
+    assert LeitstelleData.model_validate_json(redis.values[f"{REDIS_KEY_PREFIX}ADMIN"]).name == "Test"

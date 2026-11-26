@@ -67,28 +67,41 @@ class ConnectionManager:
             logger.info(f"Restored {len(self.leitstellen)} leitstelle(n) from Redis")
 
     async def touch(self, admin_code: str):
-        """Count an access to an exercise: it lives for another `RETENTION_SECONDS` from now, in memory and in Redis."""
+        """Count an access to an exercise: it lives for another `RETENTION_SECONDS` from now, in memory and in Redis.
+
+        When the key is gone from Redis although the exercise is still in memory, it is written back.
+        """
         self.last_access[admin_code] = time.time()
         if not self._redis:
             return
         try:
-            await self._redis.expire(f"{REDIS_KEY_PREFIX}{admin_code}", RETENTION_SECONDS)
+            renewed = await self._redis.expire(f"{REDIS_KEY_PREFIX}{admin_code}", RETENTION_SECONDS)
         except Exception as e:
             logger.error(f"Failed to renew {admin_code}: {e}")
+            return
+        if not renewed and admin_code in self.leitstellen:
+            await self.persist(admin_code)
 
-    async def persist(self, admin_code: str):
-        """Write an exercise to Redis, which also renews its retention, or delete it when it is gone."""
-        if admin_code in self.leitstellen:
-            self.last_access[admin_code] = time.time()
+    async def persist(self, admin_code: str, access: bool = True):
+        """Write an exercise to Redis, or delete it there when it is gone.
+
+        A write on behalf of someone using the exercise counts as an access and renews the retention.
+        A write by the server itself (`access=False`, such as dropping stale connections) keeps the
+        last access, and the key gets only the lifetime that is left.
+        """
+        now = time.time()
+        if access and admin_code in self.leitstellen:
+            self.last_access[admin_code] = now
         if not self._redis:
             return
         try:
             ls = self.leitstellen.get(admin_code)
             if ls:
+                remaining = RETENTION_SECONDS - (now - self.last_access.get(admin_code, now))
                 await self._redis.set(
                     f"{REDIS_KEY_PREFIX}{admin_code}",
                     ls.model_dump_json(exclude={"scenarios"}),
-                    ex=RETENTION_SECONDS,
+                    ex=max(1, int(remaining)),
                 )
             else:
                 await self._redis.delete(f"{REDIS_KEY_PREFIX}{admin_code}")
@@ -223,7 +236,7 @@ class ConnectionManager:
                 logger.info(f"Cleaned up {removed} inactive connections in {admin_code}")
                 active_names = {c.name for c in ls.connections}
                 ls.notices = {n: v for n, v in ls.notices.items() if n in active_names}
-                await self.persist(admin_code)
+                await self.persist(admin_code, access=False)
 
 
 manager = ConnectionManager()
