@@ -12,7 +12,7 @@ from models import (
     MessageRequest, TargetRequest, NoticeRequest,
     NoteRequest, StatusRequest, LeitstelleCreateRequest,
     ScenarioStartRequest, ChecklistUpdateRequest, ChecklistState,
-    ClaimRequest, VehicleActionRequest, SfChannelRequest,
+    ClaimRequest, VehicleActionRequest, SfChannelRequest, StatusUpdate,
 )
 from logging_conf import get_logger
 from frontend import frontend_directory, shell_response
@@ -64,6 +64,18 @@ async def _require_dispatch(code: str):
         return None, None
     await manager.touch(admin_code)
     return admin_code, manager.leitstellen[admin_code]
+
+
+async def _require_supervisor(code: str):
+    """Resolve a dispatch or unit leader code and count it as an access, or return `(None, None)`.
+
+    The vehicle code is handed to every trainee, so it never reaches notes, other vehicles' messages
+    or the scenario checklists.
+    """
+    admin_code, ls = await _require_leitstelle(code)
+    if not admin_code or code.upper() not in (admin_code, ls.staffelfuehrer_code):
+        return None, None
+    return admin_code, ls
 
 
 async def _require_sf(code: str):
@@ -251,6 +263,32 @@ async def join(code: str, name: str = ""):
     }
 
 
+def _vehicle_view(update: StatusUpdate, ls: LeitstelleData, name: str | None) -> dict:
+    """Cut a status update down to what one vehicle may see.
+
+    Only its own connection, without the notes of dispatch and unit leader and without its scenario,
+    whose generated radio messages are the solution of the exercise; only its own channel request;
+    and its own messages.
+    """
+    own = [
+        vehicle.model_copy(update={
+            "note": "",
+            "sf_note": "",
+            "active_scenario": None,
+            "checklist_state": None,
+            "next_todo": None,
+        })
+        for vehicle in update.connections
+        if name and vehicle.name == name
+    ]
+    notices = {key: notice for key, notice in update.notices.items() if name and key == name}
+    messages = ls.chat_history.get(name, []) if name else []
+    return {
+        **StatusUpdate(connections=own, notices=notices).model_dump(),
+        "messages": [m.model_dump() for m in messages],
+    }
+
+
 @router.get("/api/poll/{code}")
 async def poll(code: str, name: str | None = None):
     code_upper = code.upper()
@@ -301,12 +339,9 @@ async def poll(code: str, name: str | None = None):
     if not update:
         return _error("Failed to build status")
 
-    response = update.model_dump()
-
-    if ls.vehicle_code == code_upper and name:
-        response["messages"] = [m.model_dump() for m in ls.chat_history.get(name, [])]
-
-    return response
+    if ls.vehicle_code == code_upper:
+        return _vehicle_view(update, ls, name)
+    return update.model_dump()
 
 
 @router.post("/api/vehicle/{code}/action")
@@ -348,7 +383,7 @@ async def vehicle_action(code: str, request: VehicleActionRequest):
 
 @router.post("/api/leitstelle/{code}/message")
 async def send_message(code: str, request: MessageRequest):
-    admin_code, ls = await _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Invalid code")
 
@@ -367,7 +402,7 @@ async def send_message(code: str, request: MessageRequest):
 
 @router.get("/api/leitstelle/{code}/chat_history")
 async def get_chat_history(code: str, target_name: str):
-    admin_code, ls = await _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Invalid code")
     history = ls.chat_history.get(target_name, [])
@@ -405,7 +440,7 @@ async def clear_kurzstatus(code: str, request: TargetRequest):
 
 @router.post("/api/leitstelle/{code}/update_note")
 async def update_note(code: str, request: NoteRequest):
-    admin_code, ls = await _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Invalid code")
     if code.upper() == admin_code:
@@ -609,7 +644,7 @@ async def discard_scenario(code: str, request: TargetRequest):
 
 @router.post("/api/leitstelle/{code}/scenario/update_state")
 async def update_checklist_state(code: str, request: ChecklistUpdateRequest):
-    admin_code, ls = await _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Leitstelle nicht gefunden")
 
