@@ -5,6 +5,7 @@ import statusSoundUrl from '../assets/fns_status_1.mp3'
 import ChatLog from '../components/ChatLog.vue'
 import MissingExercise from '../components/MissingExercise.vue'
 import StatusKeypad from '../components/StatusKeypad.vue'
+import {useAction} from '../composables/useAction'
 import {useExercisePoll} from '../composables/useExercisePoll'
 import {vehicleAction, vehicleInfo} from '../exercise'
 
@@ -34,6 +35,7 @@ const lastPressed = ref<string | null>(null)
 let statusSound: HTMLAudioElement | undefined
 
 const {state, refresh} = useExercisePoll(props.code, () => props.name)
+const {attempt} = useAction()
 
 useHead({title: () => `${props.name} – Status Sim`})
 
@@ -69,8 +71,7 @@ watch(() => [me.value?.status, me.value?.special], () => {
 })
 
 async function act(action: string, value?: string): Promise<void> {
-  await vehicleAction(props.code, props.name, action, value)
-  refresh()
+  if (await attempt(() => vehicleAction(props.code, props.name, action, value))) refresh()
 }
 
 /** Key 9 only clicks, since it is no status of its own. */

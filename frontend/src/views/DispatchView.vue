@@ -6,6 +6,7 @@ import {post} from '../api'
 import MissingExercise from '../components/MissingExercise.vue'
 import VehicleGroup from '../components/VehicleGroup.vue'
 import VehicleItem from '../components/VehicleItem.vue'
+import {useAction} from '../composables/useAction'
 import {REFRESH_KEY, useExercisePoll} from '../composables/useExercisePoll'
 import {type DispatchInfo, dispatchInfo, exercisePath} from '../exercise'
 import {specialSince} from '../status'
@@ -31,6 +32,7 @@ const path = exercisePath(props.code)
 
 const {state, connected, refresh} = useExercisePoll(props.code, () => lsName.value)
 provide(REFRESH_KEY, refresh)
+const {attempt} = useAction()
 
 useHead({title: () => (info.value ? `Leitstelle ${info.value.name} – Status Sim` : 'Leitstelle – Status Sim')})
 
@@ -41,7 +43,7 @@ onMounted(async () => {
     missing.value = true
     return
   }
-  if (radioChannel.value) await post(`${path}/channel`, {name: lsName.value, channel: radioChannel.value})
+  if (radioChannel.value) await attempt(() => post(`${path}/channel`, {name: lsName.value, channel: radioChannel.value}))
 })
 
 const vehicles = computed(() => {
@@ -69,7 +71,7 @@ function toggleCombine(): void {
 
 async function sendToAll(): Promise<void> {
   if (!message.value) return
-  await post(`${path}/message`, {message: message.value})
+  if (!await attempt(() => post(`${path}/message`, {message: message.value}))) return
   message.value = ''
   refresh()
 }
@@ -84,8 +86,7 @@ function saveName(): void {
 async function saveChannel(): Promise<void> {
   saveSettings('dispatch', props.code, {channel: radioChannel.value})
   writeSettingsToAddress(lsName.value, radioChannel.value)
-  await post(`${path}/channel`, {name: lsName.value, channel: radioChannel.value})
-  refresh()
+  if (await attempt(() => post(`${path}/channel`, {name: lsName.value, channel: radioChannel.value}))) refresh()
 }
 </script>
 

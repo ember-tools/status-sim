@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed, inject, ref} from 'vue'
 import {get, post} from '../api'
+import {useAction} from '../composables/useAction'
 import {REFRESH_KEY} from '../composables/useExercisePoll'
 import {exercisePath} from '../exercise'
 import {statusBorder} from '../status'
@@ -29,21 +30,17 @@ const MANUAL_STATUSES = [
 ] as const
 
 const refresh = inject(REFRESH_KEY, () => undefined)
+const {attempt} = useAction()
 const open = ref(false)
 const path = computed(() => exercisePath(props.adminCode))
 const target = computed(() => ({target_name: props.car.name}))
 
 async function act(action: string, body: object = target.value): Promise<void> {
-  await post(`${path.value}/${action}`, body)
-  refresh()
+  if (await attempt(() => post(`${path.value}/${action}`, body))) refresh()
 }
 
-/**
- * Starts a new incident from a scenario the vehicle has not had yet, discarding the running one.
- * When all are used up, a random one starts again.
- */
-async function newIncident(): Promise<void> {
-  if (props.car.active_scenario) await post(`${path.value}/scenario/discard`, target.value)
+/** Starts the next scenario the vehicle has not had yet; when all are used up, a random one. */
+async function startNextScenario(): Promise<void> {
   try {
     const answer = await post<{ scenario: { name: string } }>(`${path.value}/scenario/next`, target.value)
     await post(`${path.value}/scenario/start`, {...target.value, scenario_name: answer.scenario.name})
@@ -52,6 +49,14 @@ async function newIncident(): Promise<void> {
     const scenario = scenarios[Math.floor(Math.random() * scenarios.length)]
     if (scenario) await post(`${path.value}/scenario/start`, {...target.value, scenario_name: scenario.name})
   }
+}
+
+/** Starts a new incident for the vehicle, discarding the running one. */
+async function newIncident(): Promise<void> {
+  await attempt(async () => {
+    if (props.car.active_scenario) await post(`${path.value}/scenario/discard`, target.value)
+    await startNextScenario()
+  })
   refresh()
 }
 

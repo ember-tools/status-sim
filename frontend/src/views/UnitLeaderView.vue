@@ -6,6 +6,7 @@ import {post} from '../api'
 import MissingExercise from '../components/MissingExercise.vue'
 import UnitLeaderVehicleCard from '../components/UnitLeaderVehicleCard.vue'
 import VehicleGroup from '../components/VehicleGroup.vue'
+import {useAction} from '../composables/useAction'
 import {useExercisePoll} from '../composables/useExercisePoll'
 import {exercisePath, unitLeaderInfo, unitLeaderPath} from '../exercise'
 import {joinLink, loadSettings, saveSettings, writeSettingsToAddress} from '../settings'
@@ -26,6 +27,7 @@ const radioChannel = ref(query.get('channel') || saved.channel || '')
 const path = unitLeaderPath(props.code)
 
 const {state, connected, refresh} = useExercisePoll(props.code, () => sfName.value || undefined)
+const {attempt} = useAction()
 
 useHead({title: () => `Staffelführer ${sfName.value} – Status Sim`})
 
@@ -37,7 +39,7 @@ onMounted(async () => {
     return
   }
   if (!sfName.value) sfName.value = dispatchName.value
-  if (radioChannel.value) await post(`${path}/channel`, {name: sfName.value, channel: radioChannel.value})
+  if (radioChannel.value) await attempt(() => post(`${path}/channel`, {name: sfName.value, channel: radioChannel.value}))
 })
 
 const vehicles = computed(() => [...(state.value?.connections ?? [])].sort((a, b) => a.last_activity - b.last_activity))
@@ -63,12 +65,11 @@ function saveName(): void {
 async function saveChannel(): Promise<void> {
   saveSettings('unitLeader', props.code, {channel: radioChannel.value})
   writeSettingsToAddress(sfName.value, radioChannel.value)
-  await post(`${path}/channel`, {name: sfName.value, channel: radioChannel.value})
+  await attempt(() => post(`${path}/channel`, {name: sfName.value, channel: radioChannel.value}))
 }
 
 async function act(action: string, carName: string, extra: object = {}): Promise<void> {
-  await post(`${path}/${action}`, {target_name: carName, ...extra})
-  refresh()
+  if (await attempt(() => post(`${path}/${action}`, {target_name: carName, ...extra}))) refresh()
 }
 
 function claim(carName: string): void {
@@ -80,8 +81,7 @@ function request(carName: string): void {
 }
 
 async function updateChecklist(carName: string, checklist: ChecklistState): Promise<void> {
-  await post(`${exercisePath(props.code)}/scenario/update_state`, {target_name: carName, state: checklist})
-  refresh()
+  if (await attempt(() => post(`${exercisePath(props.code)}/scenario/update_state`, {target_name: carName, state: checklist}))) refresh()
 }
 </script>
 

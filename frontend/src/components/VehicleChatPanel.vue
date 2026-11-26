@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
 import {get, post} from '../api'
+import {useAction} from '../composables/useAction'
 import {exercisePath} from '../exercise'
 import type {ChatMessage} from '../types'
 import ChatLog from './ChatLog.vue'
@@ -17,6 +18,7 @@ const props = defineProps<{
 }>()
 
 const CHAT_INTERVAL_MS = 3000
+const {attempt} = useAction()
 
 const message = ref('')
 const note = ref(props.note)
@@ -52,13 +54,13 @@ onBeforeUnmount(() => clearInterval(timer))
 
 async function send(): Promise<void> {
   if (!message.value.trim()) return
-  await post(`${exercisePath(props.code)}/message`, {message: message.value, target_name: props.targetName})
+  if (!await attempt(() => post(`${exercisePath(props.code)}/message`, {message: message.value, target_name: props.targetName}))) return
   message.value = ''
   await loadMessages()
 }
 
 async function saveNote(): Promise<void> {
-  await post(`${exercisePath(props.code)}/update_note`, {target_name: props.targetName, note: note.value})
+  await attempt(() => post(`${exercisePath(props.code)}/update_note`, {target_name: props.targetName, note: note.value}))
 }
 </script>
 
