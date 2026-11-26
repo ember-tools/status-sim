@@ -1,9 +1,6 @@
-import { createApp } from 'vue'
-import axios from 'axios';
-import './style.css'
+import {createToolApp, emberboxUi} from '@emberbox/ui'
 import App from './App.vue'
-import { backendBaseUrl } from './config/backend';
+import {browserNavigation} from './navigation'
+import './style.css'
 
-axios.defaults.baseURL = backendBaseUrl;
-
-createApp(App).mount('#app')
+createToolApp(App).use(browserNavigation()).use(emberboxUi).mount('#app')

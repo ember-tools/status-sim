@@ -1,8 +1,23 @@
-import {defineConfig} from 'vite'
+import {emberbox} from '@emberbox/ui/vite'
 import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
+import {defineConfig} from 'vite'
 
-// https://vite.dev/config/
+const backend = process.env.BACKEND_URL ?? 'http://localhost:8000'
+
 export default defineConfig({
-    plugins: [vue(), tailwindcss()],
+    plugins: [
+        vue(),
+        emberbox({
+            url: 'https://statussim.emberbox.app',
+            logo: 'statussim',
+            router: false,
+            prerender: {entry: 'src/prerender.ts', paths: ['/', '/hilfe']},
+        }),
+    ],
+    server: {
+        host: true,
+        proxy: {
+            '/api': backend,
+        },
+    },
 })

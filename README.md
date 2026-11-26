@@ -1,101 +1,87 @@
-# Status Simulator (Leitstelle Simulator)
+# Status Sim
 
-[English](#english) | [Deutsch](#deutsch)
+Radio and vehicle status exercises for fire brigades, at
+[statussim.emberbox.app](https://statussim.emberbox.app). A dispatch centre, unit leaders and
+vehicles play one exercise together, each role on its own device: vehicles set their status on a
+status keypad, the dispatch centre sees every report and hands out incidents from prepared
+scenarios, and unit leaders call vehicles to their own channel. The interface is German.
 
----
+Status Sim is one of the tools of the [Emberbox](https://emberbox.app).
 
-<a name="english"></a>
-## English
+## Features
 
-### Project Overview
-The **Status Simulator** is a web-based application designed to simulate the status reporting and communication between emergency vehicles and a central dispatch (Leitstelle). It allows for real-time status updates, messaging, and coordination between different roles: Dispatch (Leitstelle), Unit Leader (Staffelführer), and Vehicles.
+- **Vehicle:** status keypad (statuses 1 to 8, request to talk 5, flash 0) with the transitions of
+  the real radio, short status messages, messages from dispatch and the unit leader, requests to
+  switch channels.
+- **Dispatch:** several dispatchers share one exercise and take over vehicles; requests to talk are
+  sorted by waiting time, vehicles are grouped by urgency; status, messages and notes per vehicle.
+- **Unit leader:** takes over vehicles, asks them to switch to its channel and works through their
+  scenarios.
+- **Scenarios:** the JSON files in `src/static/scenarios/` generate the radio messages of an
+  incident as a checklist shared by dispatch and unit leader.
 
-### Features
-- **Leitstelle (Dispatch) View**: Create a dispatch center, manage vehicle connections, send broadcast or private messages, and clear special status requests.
-- **Vehicle Status View**: Simulated keypad for status updates (e.g., Status 1-4, 7-8), special signals (Blitz, Sprechwunsch), and pre-defined short status messages (Kurzstatus).
-- **Staffelführer (Unit Leader) View**: Monitor assigned vehicles and communicate with them.
-- **Real-time Communication**: Powered by WebSockets for instantaneous updates across all connected clients.
-- **Status Transition Logic**: Enforces realistic status flows (e.g., Status 7 only after Status 4, Status 8 only after Status 7).
-- **License**: Released under the GPL-3.0 License.
+Every exercise has three codes, one per role. There are no accounts.
 
-### Technology Stack
-- **Backend**: Python, FastAPI
-- **Frontend**: HTML5, CSS3, JavaScript (Vanilla)
-- **Templating**: Jinja2
-- **Infrastructure**: Docker, Pipenv
+## Data and retention
 
-### Getting Started
+An exercise lives in the server's memory and, with `REDIS_URL` set, in Redis under the key
+`ls:<dispatch code>`: the names of the dispatch centre, dispatchers, unit leaders and vehicles,
+statuses, messages, notes and scenario progress.
 
-#### Prerequisites
-- Docker and Docker Compose
-- *OR* Python 3.14 with Pipenv
+**An exercise is deleted seven days after its last access.** Every request that uses one of its
+codes counts as an access (polling, actions, opening one of its pages) and renews the Redis
+`EXPIRE` of its key to seven days. Once seven days pass without any, the key expires in Redis and
+the server drops the exercise and its codes from memory within a minute. A vehicle that has not
+polled for five minutes is removed from its exercise earlier.
 
-#### Running with Docker
-1. Build the image:
-   ```bash
-   docker build -t status-sim .
-   ```
-2. Run the container:
-   ```bash
-   docker run -p 8000:8000 status-sim
-   ```
-3. Access the application at `http://localhost:8000`.
+With Redis persistence on (AOF), an expired key leaves the append-only file only when Redis
+rewrites it. `compose.prod.yml` therefore sets `auto-aof-rewrite-min-size` to 1 MB, so even a small
+instance rewrites the file regularly and expired exercises do not linger on disk; keep that setting
+when running Redis elsewhere.
 
-#### Running Locally
-1. Install dependencies:
-   ```bash
-   pipenv install
-   ```
-2. Run the application:
-   ```bash
-   pipenv run uvicorn src.main:app --reload
-   ```
+In the browser, Status Sim keeps per exercise the name and radio channel of dispatchers and unit
+leaders and whether requests to talk are combined (`localStorage` keys `statussim.dispatch` and
+`statussim.unit-leader`, entries dropped after seven days), and the colour mode
+(`vueuse-color-scheme`). `frontend/browser-storage.json` lists the keys the code uses.
 
----
+## Running it
 
-<a name="deutsch"></a>
-## Deutsch
+The image is `ghcr.io/ember-tools/status-sim`, built by CI on every push to `main`. It serves API
+and frontend on port 8000, runs as a non-root user and reports its health at `/api/health`.
 
-### Projektübersicht
-Der **Status Simulator** ist eine webbasierte Anwendung zur Simulation der Statusmeldungen und Kommunikation zwischen Einsatzfahrzeugen und einer zentralen Leitstelle. Die Anwendung ermöglicht Echtzeit-Status-Updates, Nachrichtenversand und die Koordination zwischen verschiedenen Rollen: Leitstelle, Staffelführer und Fahrzeuge.
+`compose.prod.yml` is a template for running it with Redis behind Traefik (entrypoint
+`websecure`, certificate resolver `letsencrypt`, host `statussim.emberbox.app`); adapt the labels
+to your proxy. The `redis-data` volume holds the exercises; the app container keeps no state.
+The proxy must pass `X-Forwarded-*` headers; uvicorn runs with `--proxy-headers`.
 
-### Funktionen
-- **Leitstellen-Ansicht**: Erstellen einer Leitstelle, Verwalten von Fahrzeugverbindungen, Senden von Rundspruch- oder Privatnachrichten und Zurücksetzen von Sonderrechten.
-- **Fahrzeug-Status-Ansicht**: Simuliertes Tastenfeld für Statusmeldungen (z.B. Status 1-4, 7-8), Sondersignale (Blitz, Sprechwunsch) und vordefinierte Kurzstatusmeldungen.
-- **Staffelführer-Ansicht**: Überwachung der zugewiesenen Fahrzeuge und Kommunikation mit diesen.
-- **Echtzeit-Kommunikation**: Basierend auf WebSockets für sofortige Aktualisierungen bei allen verbundenen Clients.
-- **Status-Logik**: Erzwingt realistische Statusabfolgen (z.B. Status 7 nur nach Status 4, Status 8 nur nach Status 7).
-- **Lizenz**: Veröffentlicht unter der GPL-3.0 Lizenz.
+| Variable | Default | Meaning |
+|---|---|---|
+| `REDIS_URL` | none | Redis for persistence, such as `redis://redis:6379`. Without it, exercises live only in memory and are lost on restart. |
+| `CORS_ORIGINS` | `https://statussim.emberbox.app` | Comma-separated origins allowed to call the API from another site. |
+| `LOG_FORMAT` | `json` in the image | `json` for structured logs, otherwise plain text. |
+| `LOG_LEVEL` | `INFO` | Log level. |
+| `DEMO_MODE` | `false` | Starts a demo exercise with simulated vehicles. |
+| `FRONTEND_DIR` | `src/frontend_dist`, else `frontend/dist` | Where the built frontend is read from. |
 
-### Technologie-Stack
-- **Backend**: Python, FastAPI
-- **Frontend**: HTML5, CSS3, JavaScript (Vanilla)
-- **Templating**: Jinja2
-- **Infrastruktur**: Docker, Pipenv
+## Development
 
-### Erste Schritte
+Everything runs through `./toolchain.sh`, inside the nix shell of `shell.nix` via direnv
+(`direnv allow` once). `./toolchain.sh help` lists all commands.
 
-#### Voraussetzungen
-- Docker und Docker Compose
-- *ODER* Python 3.14 mit Pipenv
+```sh
+./toolchain.sh be-install && ./toolchain.sh fe-install
+./toolchain.sh be-dev      # backend on port 8000
+./toolchain.sh fe-dev      # Vite dev server, proxies /api to the backend
+./toolchain.sh verify      # everything CI runs
+./toolchain.sh fe-lint     # ESLint, duplication, comments, em dashes, browser storage
+./toolchain.sh docker-app  # local stack with Redis from compose.yml
+```
 
-#### Ausführung mit Docker
-1. Image erstellen:
-   ```bash
-   docker build -t status-sim .
-   ```
-2. Container starten:
-   ```bash
-   docker run -p 8000:8000 status-sim
-   ```
-3. Anwendung aufrufen unter `http://localhost:8000`.
+The backend is FastAPI (`src/`), the frontend Vue 3 with [`@emberbox/ui`](https://github.com/ember-tools/emberbox)
+and Nuxt UI (`frontend/`). The frontend has no vue-router; `src/navigation.ts` maps the address to
+a view. The landing page and the help (`/hilfe`) are prerendered at build time; the backend serves
+them from `pages/`, every other path gets the single-page shell with `X-Robots-Tag: noindex`.
 
-#### Lokale Ausführung
-1. Abhängigkeiten installieren:
-   ```bash
-   pipenv install
-   ```
-2. Anwendung starten:
-   ```bash
-   pipenv run uvicorn src.main:app --reload
-   ```
+## License
+
+[GPL-3.0](LICENSE).

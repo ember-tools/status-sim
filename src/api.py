@@ -1,38 +1,31 @@
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
 import json
 import uuid
 import time
 import os
 import random
 
-from manager import manager  # type: ignore
+from manager import manager
 from models import (
     LeitstelleData, Connection, Notice, ChatMessage,
     MessageRequest, TargetRequest, NoticeRequest,
     NoteRequest, StatusRequest, LeitstelleCreateRequest,
     ScenarioStartRequest, ChecklistUpdateRequest, ChecklistState,
-    ClaimRequest, VehicleActionRequest, SfChannelRequest,
-)  # type: ignore
-from logging_conf import get_logger  # type: ignore
-from scenario_models import Scenario, FunkEntry  # type: ignore
+    ClaimRequest, VehicleActionRequest, SfChannelRequest, StatusUpdate,
+)
+from logging_conf import get_logger
+from frontend import frontend_directory, shell_response
+from scenario_models import Scenario, FunkEntry
 
 logger = get_logger("api")
 
 router = APIRouter()
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-_frontend_dist_primary = os.path.join(current_dir, "frontend_dist")
-_frontend_dist_legacy = os.path.join(project_root, "frontend", "dist")
-frontend_dist = _frontend_dist_primary if os.path.exists(_frontend_dist_primary) else _frontend_dist_legacy
 
 SCENARIOS_DIR = os.path.join(current_dir, "static", "scenarios")
 
-
-# ---------------------------------------------------------------------------
-# Health
-# ---------------------------------------------------------------------------
 
 @router.get("/api/health")
 async def health():
@@ -51,22 +44,42 @@ async def health():
     }
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 def _error(message: str):
     return {"status": "error", "message": message}
 
 
-def _require_leitstelle(code: str):
+async def _require_leitstelle(code: str):
+    """Resolve any code of an exercise and count it as an access, or return `(None, None)`."""
     result = manager.get_leitstelle(code)
     if not result:
         return None, None
+    await manager.touch(result[0])
     return result
 
 
-def _require_sf(code: str):
+async def _require_dispatch(code: str):
+    """Resolve a dispatch code and count it as an access, or return `(None, None)`."""
+    admin_code = code.upper()
+    if admin_code not in manager.leitstellen:
+        return None, None
+    await manager.touch(admin_code)
+    return admin_code, manager.leitstellen[admin_code]
+
+
+async def _require_supervisor(code: str):
+    """Resolve a dispatch or unit leader code and count it as an access, or return `(None, None)`.
+
+    The vehicle code is handed to every trainee, so it never reaches notes, other vehicles' messages
+    or the scenario checklists.
+    """
+    admin_code, ls = await _require_leitstelle(code)
+    if not admin_code or code.upper() not in (admin_code, ls.staffelfuehrer_code):
+        return None, None
+    return admin_code, ls
+
+
+async def _require_sf(code: str):
+    """Resolve a unit leader code and count it as an access, or return `(None, None)`."""
     sf_code = code.upper()
     admin_code = manager.code_to_admin.get(sf_code)
     if not admin_code or admin_code not in manager.leitstellen:
@@ -74,6 +87,7 @@ def _require_sf(code: str):
     ls = manager.leitstellen[admin_code]
     if ls.staffelfuehrer_code != sf_code:
         return None, None
+    await manager.touch(admin_code)
     return admin_code, ls
 
 
@@ -135,69 +149,44 @@ def _append_chat(ls: LeitstelleData, vehicle_name: str, sender: str, text: str):
         history[:] = history[-200:]
 
 
-# ---------------------------------------------------------------------------
-# HTML serving
-# ---------------------------------------------------------------------------
-
-async def serve_vue_index(request: Request):
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return HTMLResponse(content="Frontend not found", status_code=404)
-
-
-@router.get("/", response_class=HTMLResponse)
-async def get_index(request: Request):
-    return await serve_vue_index(request)
-
-
-@router.get("/hilfe", response_class=HTMLResponse)
-async def get_help(request: Request):
-    return await serve_vue_index(request)
-
-
-@router.get("/leitstelle/{code}", response_class=HTMLResponse)
-async def get_leitstelle_view(request: Request, code: str):
-    if code.upper() not in manager.leitstellen:
-        return RedirectResponse(url="/", status_code=307)
-    return await serve_vue_index(request)
-
-
-@router.get("/staffelfuehrer/{code}", response_class=HTMLResponse)
-async def get_staffelfuehrer_view(request: Request, code: str):
-    admin_code, _ = _require_sf(code)
-    if not admin_code:
-        return RedirectResponse(url="/", status_code=307)
-    return await serve_vue_index(request)
-
-
-@router.get("/status", response_class=HTMLResponse)
-async def get_status_page(request: Request, code: str, name: str):
-    code_upper = code.upper()
-    admin_code = manager.code_to_admin.get(code_upper)
-    if not admin_code or admin_code not in manager.leitstellen:
-        return RedirectResponse(url="/", status_code=307)
-
-    ls = manager.leitstellen[admin_code]
-    if ls.vehicle_code == code_upper:
-        existing = manager.find_connection(ls, name)
-        if existing and manager.is_online(existing):
-            return RedirectResponse(
-                url=f"/?error=name_taken&old_name={name}&code={code_upper}",
-                status_code=307,
-            )
-        return await serve_vue_index(request)
-    elif ls.staffelfuehrer_code == code_upper:
-        return RedirectResponse(url=f"/staffelfuehrer/{code_upper}", status_code=307)
-
+def _home() -> RedirectResponse:
+    """Send the browser to the landing page."""
     return RedirectResponse(url="/", status_code=307)
 
 
-# ---------------------------------------------------------------------------
-# Leitstelle management
-# ---------------------------------------------------------------------------
+@router.get("/leitstelle/{code}", include_in_schema=False)
+async def get_leitstelle_view(code: str):
+    """Open the dispatch view, or the landing page when the code is unknown."""
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
+        return _home()
+    return shell_response(frontend_directory())
 
-@router.post("/leitstelle")
+
+@router.get("/staffelfuehrer/{code}", include_in_schema=False)
+async def get_staffelfuehrer_view(code: str):
+    """Open the unit leader view, or the landing page when the code is unknown."""
+    admin_code, _ = await _require_sf(code)
+    if not admin_code:
+        return _home()
+    return shell_response(frontend_directory())
+
+
+@router.get("/status", include_in_schema=False)
+async def get_status_page(code: str = "", name: str = ""):
+    """Open the vehicle view; a unit leader code goes to its own view, anything else to the landing page."""
+    code_upper = code.upper()
+    admin_code, ls = await _require_leitstelle(code)
+    if not admin_code or not name:
+        return _home()
+    if ls.vehicle_code == code_upper:
+        return shell_response(frontend_directory())
+    if ls.staffelfuehrer_code == code_upper:
+        return RedirectResponse(url=f"/staffelfuehrer/{code_upper}", status_code=307)
+    return _home()
+
+
+@router.post("/api/leitstelle")
 async def create_leitstelle(request: LeitstelleCreateRequest):
     admin_code = str(uuid.uuid4())[:8].upper()
     vehicle_code = str(uuid.uuid4())[:8].upper()
@@ -227,8 +216,8 @@ async def create_leitstelle(request: LeitstelleCreateRequest):
 
 @router.get("/api/leitstelle_info/{code}")
 async def get_leitstelle_info(code: str):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     ls = manager.leitstellen[admin_code]
     return {
@@ -241,7 +230,7 @@ async def get_leitstelle_info(code: str):
 
 @router.get("/api/staffelfuehrer_info/{code}")
 async def get_staffelfuehrer_info(code: str):
-    admin_code, ls = _require_sf(code)
+    admin_code, ls = await _require_sf(code)
     if not admin_code:
         return _error("Invalid code")
     return {"status": "success", "name": ls.name}
@@ -249,15 +238,56 @@ async def get_staffelfuehrer_info(code: str):
 
 @router.get("/api/status_info")
 async def get_status_info(code: str, name: str):
-    admin_code, ls = _require_leitstelle(code)
+    admin_code, ls = await _require_leitstelle(code)
     if not admin_code:
         return _error("Invalid code")
     return {"status": "success", "leitstelle_name": ls.name}
 
 
-# ---------------------------------------------------------------------------
-# Polling
-# ---------------------------------------------------------------------------
+@router.get("/api/join/{code}")
+async def join(code: str, name: str = ""):
+    """Tell which role a code joins as, and for a vehicle whether its call sign is already online."""
+    admin_code, ls = await _require_leitstelle(code)
+    if not admin_code:
+        return _error("Invalid code")
+    code_upper = code.upper()
+    if code_upper == admin_code:
+        return {"status": "success", "role": "dispatch", "name_taken": False}
+    if code_upper == ls.staffelfuehrer_code:
+        return {"status": "success", "role": "unit_leader", "name_taken": False}
+    existing = manager.find_connection(ls, name)
+    return {
+        "status": "success",
+        "role": "vehicle",
+        "name_taken": bool(existing and manager.is_online(existing)),
+    }
+
+
+def _vehicle_view(update: StatusUpdate, ls: LeitstelleData, name: str | None) -> dict:
+    """Cut a status update down to what one vehicle may see.
+
+    Only its own connection, without the notes of dispatch and unit leader and without its scenario,
+    whose generated radio messages are the solution of the exercise; only its own channel request;
+    and its own messages.
+    """
+    own = [
+        vehicle.model_copy(update={
+            "note": "",
+            "sf_note": "",
+            "active_scenario": None,
+            "checklist_state": None,
+            "next_todo": None,
+        })
+        for vehicle in update.connections
+        if name and vehicle.name == name
+    ]
+    notices = {key: notice for key, notice in update.notices.items() if name and key == name}
+    messages = ls.chat_history.get(name, []) if name else []
+    return {
+        **StatusUpdate(connections=own, notices=notices).model_dump(),
+        "messages": [m.model_dump() for m in messages],
+    }
+
 
 @router.get("/api/poll/{code}")
 async def poll(code: str, name: str | None = None):
@@ -265,6 +295,7 @@ async def poll(code: str, name: str | None = None):
     admin_code = manager.resolve_admin_code(code_upper)
     if not admin_code:
         return _error("Invalid code")
+    await manager.touch(admin_code)
 
     ls = manager.leitstellen[admin_code]
     now = time.time()
@@ -308,21 +339,14 @@ async def poll(code: str, name: str | None = None):
     if not update:
         return _error("Failed to build status")
 
-    response = update.model_dump()
+    if ls.vehicle_code == code_upper:
+        return _vehicle_view(update, ls, name)
+    return update.model_dump()
 
-    if ls.vehicle_code == code_upper and name:
-        response["messages"] = [m.model_dump() for m in ls.chat_history.get(name, [])]
-
-    return response
-
-
-# ---------------------------------------------------------------------------
-# Vehicle actions
-# ---------------------------------------------------------------------------
 
 @router.post("/api/vehicle/{code}/action")
 async def vehicle_action(code: str, request: VehicleActionRequest):
-    admin_code, ls = _require_leitstelle(code)
+    admin_code, ls = await _require_leitstelle(code)
     if not admin_code:
         return _error("Invalid code")
 
@@ -357,13 +381,9 @@ async def vehicle_action(code: str, request: VehicleActionRequest):
     return {"status": "success"}
 
 
-# ---------------------------------------------------------------------------
-# Messages
-# ---------------------------------------------------------------------------
-
 @router.post("/api/leitstelle/{code}/message")
 async def send_message(code: str, request: MessageRequest):
-    admin_code, ls = _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Invalid code")
 
@@ -382,21 +402,17 @@ async def send_message(code: str, request: MessageRequest):
 
 @router.get("/api/leitstelle/{code}/chat_history")
 async def get_chat_history(code: str, target_name: str):
-    admin_code, ls = _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Invalid code")
     history = ls.chat_history.get(target_name, [])
     return {"status": "success", "messages": [m.model_dump() for m in history]}
 
 
-# ---------------------------------------------------------------------------
-# Leitstelle actions
-# ---------------------------------------------------------------------------
-
 @router.post("/api/leitstelle/{code}/clear_special")
 async def clear_special(code: str, request: TargetRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     conn = manager.find_connection(manager.leitstellen[admin_code], request.target_name)
     if not conn:
@@ -410,8 +426,8 @@ async def clear_special(code: str, request: TargetRequest):
 
 @router.post("/api/leitstelle/{code}/clear_kurzstatus")
 async def clear_kurzstatus(code: str, request: TargetRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     conn = manager.find_connection(manager.leitstellen[admin_code], request.target_name)
     if not conn:
@@ -424,7 +440,7 @@ async def clear_kurzstatus(code: str, request: TargetRequest):
 
 @router.post("/api/leitstelle/{code}/update_note")
 async def update_note(code: str, request: NoteRequest):
-    admin_code, ls = _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Invalid code")
     if code.upper() == admin_code:
@@ -437,8 +453,8 @@ async def update_note(code: str, request: NoteRequest):
 
 @router.post("/api/leitstelle/{code}/set_status")
 async def set_status(code: str, request: StatusRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     conn = manager.find_connection(manager.leitstellen[admin_code], request.target_name)
     if not conn:
@@ -453,8 +469,8 @@ async def set_status(code: str, request: StatusRequest):
 
 @router.post("/api/leitstelle/{code}/claim")
 async def ls_claim_vehicle(code: str, request: ClaimRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     conn = manager.find_connection(manager.leitstellen[admin_code], request.target_name)
     if not conn:
@@ -468,8 +484,8 @@ async def ls_claim_vehicle(code: str, request: ClaimRequest):
 
 @router.post("/api/leitstelle/{code}/unclaim")
 async def ls_unclaim_vehicle(code: str, request: TargetRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     conn = manager.find_connection(manager.leitstellen[admin_code], request.target_name)
     if not conn:
@@ -481,8 +497,8 @@ async def ls_unclaim_vehicle(code: str, request: TargetRequest):
 
 @router.post("/api/leitstelle/{code}/channel")
 async def set_ls_channel(code: str, request: SfChannelRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle not found")
     ls_conn = next(
         (c for c in manager.leitstellen[admin_code].connections if c.is_leitstelle and c.name == request.name),
@@ -495,13 +511,9 @@ async def set_ls_channel(code: str, request: SfChannelRequest):
     return {"status": "success"}
 
 
-# ---------------------------------------------------------------------------
-# Staffelfuehrer actions
-# ---------------------------------------------------------------------------
-
 @router.post("/api/staffelfuehrer/{code}/notice")
 async def send_notice(code: str, request: NoticeRequest):
-    admin_code, ls = _require_sf(code)
+    admin_code, ls = await _require_sf(code)
     if not admin_code:
         return _error("Invalid code")
 
@@ -523,7 +535,7 @@ async def send_notice(code: str, request: NoticeRequest):
 
 @router.post("/api/staffelfuehrer/{code}/acknowledge")
 async def acknowledge_notice(code: str, request: TargetRequest):
-    admin_code, ls = _require_sf(code)
+    admin_code, ls = await _require_sf(code)
     if not admin_code:
         return _error("Invalid code")
     if request.target_name in ls.notices:
@@ -535,7 +547,7 @@ async def acknowledge_notice(code: str, request: TargetRequest):
 
 @router.post("/api/staffelfuehrer/{code}/claim")
 async def claim_vehicle(code: str, request: ClaimRequest):
-    admin_code, ls = _require_sf(code)
+    admin_code, ls = await _require_sf(code)
     if not admin_code:
         return _error("Invalid code")
     conn = manager.find_connection(ls, request.target_name)
@@ -550,7 +562,7 @@ async def claim_vehicle(code: str, request: ClaimRequest):
 
 @router.post("/api/staffelfuehrer/{code}/unclaim")
 async def unclaim_vehicle(code: str, request: TargetRequest):
-    admin_code, ls = _require_sf(code)
+    admin_code, ls = await _require_sf(code)
     if not admin_code:
         return _error("Invalid code")
     conn = manager.find_connection(ls, request.target_name)
@@ -563,7 +575,7 @@ async def unclaim_vehicle(code: str, request: TargetRequest):
 
 @router.post("/api/staffelfuehrer/{code}/channel")
 async def set_sf_channel(code: str, request: SfChannelRequest):
-    admin_code, ls = _require_sf(code)
+    admin_code, ls = await _require_sf(code)
     if not admin_code:
         return _error("Invalid code")
     sf_conn = next((c for c in ls.connections if c.name == request.name and c.is_staffelfuehrer), None)
@@ -574,14 +586,10 @@ async def set_sf_channel(code: str, request: SfChannelRequest):
     return {"status": "success"}
 
 
-# ---------------------------------------------------------------------------
-# Scenarios
-# ---------------------------------------------------------------------------
-
 @router.get("/api/leitstelle/{code}/scenarios")
 async def list_scenarios(code: str):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle nicht gefunden")
     _ensure_scenarios_loaded(admin_code)
     ls = manager.leitstellen[admin_code]
@@ -591,8 +599,8 @@ async def list_scenarios(code: str):
 
 @router.post("/api/leitstelle/{code}/scenario/start")
 async def start_scenario(code: str, request: ScenarioStartRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle nicht gefunden")
 
     _ensure_scenarios_loaded(admin_code)
@@ -624,8 +632,8 @@ async def start_scenario(code: str, request: ScenarioStartRequest):
 
 @router.post("/api/leitstelle/{code}/scenario/discard")
 async def discard_scenario(code: str, request: TargetRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle nicht gefunden")
     ls = manager.leitstellen[admin_code]
     ls.active_scenarios.pop(request.target_name, None)
@@ -636,7 +644,7 @@ async def discard_scenario(code: str, request: TargetRequest):
 
 @router.post("/api/leitstelle/{code}/scenario/update_state")
 async def update_checklist_state(code: str, request: ChecklistUpdateRequest):
-    admin_code, ls = _require_leitstelle(code)
+    admin_code, ls = await _require_supervisor(code)
     if not admin_code:
         return _error("Leitstelle nicht gefunden")
 
@@ -655,8 +663,8 @@ async def update_checklist_state(code: str, request: ChecklistUpdateRequest):
 
 @router.post("/api/leitstelle/{code}/scenario/next")
 async def next_scenario(code: str, request: TargetRequest):
-    admin_code = code.upper()
-    if admin_code not in manager.leitstellen:
+    admin_code, _ = await _require_dispatch(code)
+    if not admin_code:
         return _error("Leitstelle nicht gefunden")
 
     vehicle_name = request.target_name

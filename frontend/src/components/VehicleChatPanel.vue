@@ -1,96 +1,78 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import axios from 'axios'
+import {nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {get, post} from '../api'
+import {useAction} from '../composables/useAction'
+import {exercisePath} from '../exercise'
+import type {ChatMessage} from '../types'
 import ChatLog from './ChatLog.vue'
-import type { ChatMessage } from '../types'
 
+/**
+ * The messages with one vehicle and a note about it, for the dispatch and the unit leader view. The
+ * messages are reloaded every three seconds while the panel is open; the note is saved when the
+ * field loses focus.
+ */
 const props = defineProps<{
   code: string
   targetName: string
-  note?: string
-  notesEnabled?: boolean
-  senderLabel?: string
+  note: string
 }>()
 
+const CHAT_INTERVAL_MS = 3000
+const {attempt} = useAction()
+
 const message = ref('')
-const localNote = ref(props.note ?? '')
-const noteField = ref<HTMLTextAreaElement | null>(null)
-const chatContainer = ref<InstanceType<typeof ChatLog> | null>(null)
-const chatLog = ref<ChatMessage[]>([])
-const isLoading = ref(false)
-let pollTimer: number | null = null
+const note = ref(props.note)
+const log = ref<InstanceType<typeof ChatLog> | null>(null)
+const messages = ref<ChatMessage[]>([])
+const loading = ref(false)
+let timer: ReturnType<typeof setInterval> | undefined
 
-const loadChatHistory = async () => {
+async function loadMessages(): Promise<void> {
   try {
-    const { data } = await axios.get(`/api/leitstelle/${props.code}/chat_history`, {
-      params: { target_name: props.targetName },
-    })
-    chatLog.value = data?.messages ?? []
+    const answer = await get<{ messages: ChatMessage[] }>(`${exercisePath(props.code)}/chat_history`, {target_name: props.targetName})
+    messages.value = answer.messages
     await nextTick()
-    const root = (chatContainer.value as any)?.root as HTMLDivElement | undefined
-    if (root) root.scrollTop = root.scrollHeight
-  } catch { /* ignore */ }
-}
-
-const resizeNote = async () => {
-  if (!props.notesEnabled) return
-  await nextTick()
-  if (noteField.value) {
-    noteField.value.style.height = 'auto'
-    noteField.value.style.height = `${noteField.value.scrollHeight}px`
+    log.value?.scrollToEnd()
+  } catch {
+    return
   }
 }
 
-watch(() => props.note, (v) => {
-  localNote.value = v ?? ''
-  void resizeNote()
+watch(() => props.note, value => {
+  note.value = value
 })
 
 onMounted(() => {
-  void resizeNote()
-  isLoading.value = true
-  loadChatHistory().finally(() => { isLoading.value = false })
-  pollTimer = window.setInterval(loadChatHistory, 3000)
-})
-
-onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
-})
-
-const sendMessage = async () => {
-  if (!message.value.trim()) return
-  await axios.post(`/api/leitstelle/${props.code}/message`, {
-    message: message.value,
-    target_name: props.targetName,
+  loading.value = true
+  void loadMessages().finally(() => {
+    loading.value = false
   })
+  timer = setInterval(() => void loadMessages(), CHAT_INTERVAL_MS)
+})
+
+onBeforeUnmount(() => clearInterval(timer))
+
+async function send(): Promise<void> {
+  if (!message.value.trim()) return
+  if (!await attempt(() => post(`${exercisePath(props.code)}/message`, {message: message.value, target_name: props.targetName}))) return
   message.value = ''
-  await loadChatHistory()
+  await loadMessages()
 }
 
-const updateNote = async () => {
-  if (!props.notesEnabled) return
-  await axios.post(`/api/leitstelle/${props.code}/update_note`, {
-    target_name: props.targetName,
-    note: localNote.value,
-  })
+async function saveNote(): Promise<void> {
+  await attempt(() => post(`${exercisePath(props.code)}/update_note`, {target_name: props.targetName, note: note.value}))
 }
 </script>
 
 <template>
-  <div>
-    <ChatLog ref="chatContainer" :messages="chatLog" :is-loading="isLoading" height-class="h-[160px]" class="mb-2" />
-    <form @submit.prevent="sendMessage" class="flex gap-1.5 items-center">
-      <input v-model="message" type="text" placeholder="Nachricht..." class="input-sm flex-1">
-      <button type="submit" class="btn btn-secondary p-1.5 px-2.5 text-sm">Senden</button>
+  <div class="flex flex-col gap-2">
+    <ChatLog ref="log" :messages="messages" :loading="loading"/>
+    <form class="flex items-center gap-1.5" @submit.prevent="send">
+      <UInput v-model="message" placeholder="Nachricht …" class="flex-1" aria-label="Nachricht an das Fahrzeug"/>
+      <UButton type="submit" color="neutral" variant="outline" icon="i-lucide-send">Senden</UButton>
     </form>
-    <div v-if="notesEnabled" class="mt-2.5">
-      <label class="label text-xs">Notizen:</label>
-      <textarea
-        ref="noteField"
-        v-model="localNote"
-        @blur="updateNote"
-        class="w-full min-h-[60px] bg-themed-overlay text-themed border border-themed rounded p-2 text-sm outline-none focus:border-primary resize-none overflow-hidden"
-      />
-    </div>
+    <UFormField label="Notizen">
+      <UTextarea v-model="note" autoresize :rows="2" class="w-full" @blur="saveNote"/>
+    </UFormField>
   </div>
 </template>

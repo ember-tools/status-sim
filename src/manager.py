@@ -1,8 +1,8 @@
 import time
 from typing import Dict, Optional, Tuple
 
-from models import LeitstelleData, Connection, VehicleStatus, StatusUpdate  # type: ignore
-from logging_conf import get_logger  # type: ignore
+from models import LeitstelleData, Connection, VehicleStatus, StatusUpdate
+from logging_conf import get_logger
 
 logger = get_logger("manager")
 
@@ -10,17 +10,16 @@ ONLINE_TIMEOUT = 15
 CLEANUP_TIMEOUT = 300
 
 REDIS_KEY_PREFIX = "ls:"
+RETENTION_SECONDS = 7 * 24 * 3600
 
 
 class ConnectionManager:
     def __init__(self):
         self.leitstellen: Dict[str, LeitstelleData] = {}
         self.code_to_admin: Dict[str, str] = {}
+        self.last_access: Dict[str, float] = {}
         self._redis = None
 
-    # ------------------------------------------------------------------
-    # Redis persistence
-    # ------------------------------------------------------------------
 
     async def init_redis(self, redis_url: str):
         import redis.asyncio as aioredis
@@ -34,8 +33,14 @@ class ConnectionManager:
             self._redis = None
 
     async def _load_all(self):
+        """Restore every exercise from Redis, with its last access derived from the key's remaining lifetime.
+
+        A key without expiry, written before exercises expired, counts as accessed now and gets the
+        full retention.
+        """
         if not self._redis:
             return
+        now = time.time()
         cursor = 0
         while True:
             cursor, keys = await self._redis.scan(cursor=cursor, match=f"{REDIS_KEY_PREFIX}*", count=100)
@@ -46,9 +51,14 @@ class ConnectionManager:
                         continue
                     admin_code = key.removeprefix(REDIS_KEY_PREFIX) if isinstance(key, str) else key.decode().removeprefix(REDIS_KEY_PREFIX)
                     ls = LeitstelleData.model_validate_json(data)
+                    ttl = await self._redis.ttl(key)
+                    if ttl < 0:
+                        await self._redis.expire(key, RETENTION_SECONDS)
+                        ttl = RETENTION_SECONDS
                     self.leitstellen[admin_code] = ls
                     self.code_to_admin[ls.vehicle_code] = admin_code
                     self.code_to_admin[ls.staffelfuehrer_code] = admin_code
+                    self.last_access[admin_code] = now - (RETENTION_SECONDS - ttl)
                 except Exception as e:
                     logger.error(f"Failed to load {key} from Redis: {e}")
             if cursor == 0:
@@ -56,28 +66,67 @@ class ConnectionManager:
         if self.leitstellen:
             logger.info(f"Restored {len(self.leitstellen)} leitstelle(n) from Redis")
 
-    async def persist(self, admin_code: str):
+    async def touch(self, admin_code: str):
+        """Count an access to an exercise: it lives for another `RETENTION_SECONDS` from now, in memory and in Redis.
+
+        When the key is gone from Redis although the exercise is still in memory, it is written back.
+        """
+        self.last_access[admin_code] = time.time()
+        if not self._redis:
+            return
+        try:
+            renewed = await self._redis.expire(f"{REDIS_KEY_PREFIX}{admin_code}", RETENTION_SECONDS)
+        except Exception as e:
+            logger.error(f"Failed to renew {admin_code}: {e}")
+            return
+        if not renewed and admin_code in self.leitstellen:
+            await self.persist(admin_code)
+
+    async def persist(self, admin_code: str, access: bool = True):
+        """Write an exercise to Redis, or delete it there when it is gone.
+
+        A write on behalf of someone using the exercise counts as an access and renews the retention.
+        A write by the server itself (`access=False`, such as dropping stale connections) keeps the
+        last access, and the key gets only the lifetime that is left.
+        """
+        now = time.time()
+        if access and admin_code in self.leitstellen:
+            self.last_access[admin_code] = now
         if not self._redis:
             return
         try:
             ls = self.leitstellen.get(admin_code)
             if ls:
+                remaining = RETENTION_SECONDS - (now - self.last_access.get(admin_code, now))
                 await self._redis.set(
                     f"{REDIS_KEY_PREFIX}{admin_code}",
                     ls.model_dump_json(exclude={"scenarios"}),
+                    ex=max(1, int(remaining)),
                 )
             else:
                 await self._redis.delete(f"{REDIS_KEY_PREFIX}{admin_code}")
         except Exception as e:
             logger.error(f"Failed to persist {admin_code}: {e}")
 
+    async def expire_stale(self):
+        """Delete every exercise nobody has accessed for `RETENTION_SECONDS`, with its codes, from memory and Redis."""
+        now = time.time()
+        for admin_code in list(self.leitstellen):
+            last = self.last_access.setdefault(admin_code, now)
+            if now - last < RETENTION_SECONDS:
+                continue
+            ls = self.leitstellen.pop(admin_code)
+            self.last_access.pop(admin_code, None)
+            for code in (ls.vehicle_code, ls.staffelfuehrer_code):
+                if self.code_to_admin.get(code) == admin_code:
+                    del self.code_to_admin[code]
+            await self.persist(admin_code)
+            logger.info(f"Deleted exercise {admin_code} after {RETENTION_SECONDS // 86400} days without access")
+
     async def close(self):
         if self._redis:
             await self._redis.aclose()
 
-    # ------------------------------------------------------------------
-    # Lookups
-    # ------------------------------------------------------------------
 
     def resolve_admin_code(self, code: str) -> Optional[str]:
         upper = code.upper()
@@ -97,9 +146,6 @@ class ConnectionManager:
     def is_online(self, connection: Connection) -> bool:
         return (time.time() - connection.last_update) < ONLINE_TIMEOUT
 
-    # ------------------------------------------------------------------
-    # Status building
-    # ------------------------------------------------------------------
 
     def build_status_update(self, admin_code: str) -> Optional[StatusUpdate]:
         if admin_code not in self.leitstellen:
@@ -109,7 +155,6 @@ class ConnectionManager:
         now = time.time()
         vehicles = []
 
-        # Build lookup for LS/SF channels by operator name
         ls_channels = {c.name: c.radio_channel for c in ls.connections if c.is_leitstelle and c.radio_channel}
         sf_channels = {c.name: c.radio_channel for c in ls.connections if c.is_staffelfuehrer and c.radio_channel}
 
@@ -177,9 +222,6 @@ class ConnectionManager:
 
         return None
 
-    # ------------------------------------------------------------------
-    # Cleanup
-    # ------------------------------------------------------------------
 
     async def cleanup_inactive(self):
         now = time.time()
@@ -194,7 +236,7 @@ class ConnectionManager:
                 logger.info(f"Cleaned up {removed} inactive connections in {admin_code}")
                 active_names = {c.name for c in ls.connections}
                 ls.notices = {n: v for n, v in ls.notices.items() if n in active_names}
-                await self.persist(admin_code)
+                await self.persist(admin_code, access=False)
 
 
 manager = ConnectionManager()

@@ -1,248 +1,184 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import {computed, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import type {ActiveScenario, ChecklistState, RadioEntry, ScenarioIncident} from '../types'
 
+/**
+ * The radio messages of a vehicle's scenario as a checklist, by incident and step. Expanded parts
+ * and ticked messages are shared through the server, so everyone looking at the vehicle sees the
+ * same state; every change is emitted as the complete new state.
+ */
 const props = defineProps<{
-  scenario: any;
-  checklistState?: {
-    expanded_einsaetze: Record<string, boolean>;
-    expanded_schritte: Record<string, boolean>;
-    checked_entries: Record<string, boolean>;
-  } | null;
-}>();
+  scenario: ActiveScenario
+  checklistState?: ChecklistState | null
+}>()
 
-const emit = defineEmits<{
-  (e: 'update:state', state: any): void;
-}>();
+const emit = defineEmits<{ 'update:state': [state: ChecklistState] }>()
 
-const expandedEinsaetze = ref<Record<string, boolean>>(props.checklistState?.expanded_einsaetze || {});
-const expandedSchritte = ref<Record<string, boolean>>(props.checklistState?.expanded_schritte || {});
-const checkedEntries = computed(() => props.checklistState?.checked_entries || {});
+/** How the scenario files name the step types. */
+const STEP_LABELS: Record<string, string> = {
+  eigenunfall: 'Eigenunfall',
+  neue_taetigkeit_mit_fzn: 'Neue Tätigkeit (FZN)',
+  neue_taetigkeit_ohne_fzn: 'Neue Tätigkeit',
+  einsatzstellenkorrektur: 'Einsatzstellenkorrektur',
+  identische_einsatzstelle_anfrage: 'Identische Einsatzstelle Anfrage',
+  ankommen: 'Ankunft am Einsatzort',
+  kurzlagemeldung_fms: 'Kurzlagemeldung FMS',
+  kurzlagemeldung: 'Kurzlagemeldung',
+  lagemeldung: 'Lagemeldung',
+  ohne_lagemeldung: 'Abschluss ohne Lagemeldung',
+  nachalarmierung: 'Nachalarmierung',
+  nachalarmierung_fahrzeuge: 'Nachalarmierung Fahrzeuge',
+  fehlalarm_lagemeldung: 'Fehlalarm BMA',
+}
 
-// Watch for external state changes to keep expansion in sync if needed
-import { watch } from 'vue';
-watch(() => props.checklistState, (newVal) => {
-  if (newVal) {
-    // We only update if they aren't already set to avoid overwriting local toggles
-    // or we can just always sync them. Let's sync them so multiple viewers see the same.
-    expandedEinsaetze.value = { ...newVal.expanded_einsaetze };
-    expandedSchritte.value = { ...newVal.expanded_schritte };
-  }
-}, { deep: true });
+const ACTOR_COLORS: Record<RadioEntry['actor'], string> = {
+  LS: 'text-info',
+  SF: 'text-signal',
+  FZ: 'text-success',
+}
 
-const displayTime = ref('');
+const CLOCK_INTERVAL_MS = 10_000
 
-const updateDisplayTime = () => {
-  const now = new Date();
-  displayTime.value = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-};
+const expandedIncidents = ref<Record<string, boolean>>({...props.checklistState?.expanded_einsaetze})
+const expandedSteps = ref<Record<string, boolean>>({...props.checklistState?.expanded_schritte})
+const checked = computed(() => props.checklistState?.checked_entries ?? {})
+const clock = ref('')
+let clockTimer: ReturnType<typeof setInterval> | undefined
 
-let timeInterval: any = null;
+watch(() => props.checklistState, state => {
+  if (!state) return
+  expandedIncidents.value = {...state.expanded_einsaetze}
+  expandedSteps.value = {...state.expanded_schritte}
+}, {deep: true})
+
+function updateClock(): void {
+  const now = new Date()
+  clock.value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+}
 
 onMounted(() => {
-  updateDisplayTime();
-  timeInterval = setInterval(updateDisplayTime, 10000); // Alle 10 Sekunden aktualisieren
-});
+  updateClock()
+  clockTimer = setInterval(updateClock, CLOCK_INTERVAL_MS)
+})
 
-onUnmounted(() => {
-  if (timeInterval) clearInterval(timeInterval);
-});
+onBeforeUnmount(() => clearInterval(clockTimer))
 
 const progress = computed(() => {
-  const entries = props.scenario.generated_entries || [];
-  if (entries.length === 0) return { done: 0, total: 0, percent: 0 };
-  
-  // Re-calculating based on checkedEntries keys is easier
-  const doneCount = Object.values(checkedEntries.value).filter(v => v).length;
-  const totalCount = entries.length;
-  return {
-    done: doneCount,
-    total: totalCount,
-    percent: totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0
-  };
-});
+  const total = props.scenario.generated_entries.length
+  const done = Object.values(checked.value).filter(Boolean).length
+  return {done, total, percent: total > 0 ? Math.round((done / total) * 100) : 0}
+})
 
-const updateState = (newPartialState: any) => {
-  const currentState = {
-    expanded_einsaetze: { ...expandedEinsaetze.value },
-    expanded_schritte: { ...expandedSchritte.value },
-    checked_entries: { ...checkedEntries.value },
-    ...newPartialState
-  };
-  emit('update:state', currentState);
-};
+function emitState(change: Partial<ChecklistState>): void {
+  emit('update:state', {
+    expanded_einsaetze: {...expandedIncidents.value},
+    expanded_schritte: {...expandedSteps.value},
+    checked_entries: {...checked.value},
+    ...change,
+  })
+}
 
-const toggleEinsatz = (index: any) => {
-  const idx = typeof index === 'string' ? index : index.toString();
-  expandedEinsaetze.value[idx] = !expandedEinsaetze.value[idx];
-  updateState({ expanded_einsaetze: { ...expandedEinsaetze.value } });
-};
+function toggleIncident(incident: number): void {
+  expandedIncidents.value[incident] = !expandedIncidents.value[incident]
+  emitState({expanded_einsaetze: {...expandedIncidents.value}})
+}
 
-const toggleSchritt = (eIdx: any, sIdx: any) => {
-  const e = typeof eIdx === 'string' ? eIdx : eIdx.toString();
-  const s = typeof sIdx === 'string' ? sIdx : sIdx.toString();
-  const key = `${e}-${s}`;
-  expandedSchritte.value[key] = !expandedSchritte.value[key];
-  updateState({ expanded_schritte: { ...expandedSchritte.value } });
-};
+function toggleStep(incident: number, step: number): void {
+  const key = `${incident}-${step}`
+  expandedSteps.value[key] = !expandedSteps.value[key]
+  emitState({expanded_schritte: {...expandedSteps.value}})
+}
 
-const toggleEntry = (eIdx: any, sIdx: any, fIdx: any) => {
-  const e = typeof eIdx === 'string' ? eIdx : eIdx.toString();
-  const s = typeof sIdx === 'string' ? sIdx : sIdx.toString();
-  const f = typeof fIdx === 'string' ? fIdx : fIdx.toString();
-  const key = `${e}-${s}-${f}`;
-  const next = { ...checkedEntries.value };
-  next[key] = !next[key];
-  updateState({ checked_entries: next });
-};
+function toggleEntry(incident: number, step: number, entry: number): void {
+  const key = `${incident}-${step}-${entry}`
+  emitState({checked_entries: {...checked.value, [key]: !checked.value[key]}})
+}
 
-const markAllAsDone = (eIdx: any, sIdx: any) => {
-  const e = typeof eIdx === 'string' ? eIdx : eIdx.toString();
-  const s = typeof sIdx === 'string' ? sIdx : sIdx.toString();
-  const funksprueche = getFunkspruecheForSchritt(eIdx, sIdx);
-  const next = { ...checkedEntries.value };
-  
-  funksprueche.forEach((_: any, fIdx: number) => {
-    const key = `${e}-${s}-${fIdx}`;
-    next[key] = true;
-  });
-  
-  updateState({ checked_entries: next });
-};
+function markStepDone(incident: number, step: number): void {
+  const next = {...checked.value}
+  entriesOf(incident, step).forEach((_, entry) => {
+    next[`${incident}-${step}-${entry}`] = true
+  })
+  emitState({checked_entries: next})
+}
 
-const getFunkspruecheForSchritt = (einsatzIndex: any, schrittIndex: any) => {
-  const e = typeof einsatzIndex === 'string' ? parseInt(einsatzIndex) : einsatzIndex;
-  const s = typeof schrittIndex === 'string' ? parseInt(schrittIndex) : schrittIndex;
-  const prefix = `[[E${e}]][[S${s}]]`;
-      return (props.scenario.generated_entries || [])
-    .filter((entry: any) => entry.message.startsWith(prefix))
-    .map((entry: any) => ({
-      ...entry,
-      message: entry.message.replace(prefix, '').replace('<time>', displayTime.value)
-    }));
-};
+/**
+ * The radio messages of one step. The generated messages carry their incident and step as a
+ * `[[E<n>]][[S<n>]]` prefix, which is cut off here, and `<time>` stands for the current time.
+ */
+function entriesOf(incident: number, step: number): RadioEntry[] {
+  const prefix = `[[E${incident}]][[S${step}]]`
+  return props.scenario.generated_entries
+    .filter(entry => entry.message?.startsWith(prefix))
+    .map(entry => ({...entry, message: (entry.message ?? '').replace(prefix, '').replace('<time>', clock.value)}))
+}
 
-const getSchrittLabel = (einsatz: any, sIdx: number) => {
-  if (sIdx === 0) return "Alarmierung";
-  const schritt = einsatz.schritte[sIdx - 1];
-  if (!schritt) return `Schritt ${sIdx}`;
-  
-  switch (schritt.typ) {
-    case 'eigenunfall': return 'Eigenunfall';
-    case 'neue_taetigkeit_mit_fzn': return 'Neue Tätigkeit (FZN)';
-    case 'neue_taetigkeit_ohne_fzn': return 'Neue Tätigkeit';
-    case 'einsatzstellenkorrektur': return 'Einsatzstellenkorrektur';
-    case 'identische_einsatzstelle_anfrage': return 'Identische Einsatzstelle Anfrage';
-    case 'ankommen': return 'Ankunft am Einsatzort';
-    case 'kurzlagemeldung_fms': return 'Kurzlagemeldung FMS';
-    case 'kurzlagemeldung': return 'Kurzlagemeldung';
-    case 'lagemeldung': return 'Lagemeldung';
-    case 'ohne_lagemeldung': return 'Abschluss ohne Lagemeldung';
-    case 'nachalarmierung': return 'Nachalarmierung';
-    case 'nachalarmierung_fahrzeuge': return 'Nachalarmierung Fahrzeuge';
-    case 'fehlalarm_lagemeldung': return 'Fehlalarm BMA';
-    default: return schritt.typ;
-  }
-};
+/** Step 0 is the alerting, the others are the steps of the scenario file. */
+function stepLabel(incident: ScenarioIncident, step: number): string {
+  if (step === 0) return 'Alarmierung'
+  const type = incident.schritte[step - 1]?.typ
+  if (!type) return `Schritt ${step}`
+  return STEP_LABELS[type] ?? type
+}
 
-const getActorColor = (actor: string) => {
-  switch (actor) {
-    case 'LS': return 'text-primary';
-    case 'SF': return 'text-danger';
-    case 'FZ': return 'text-success';
-    default: return 'text-white';
-  }
-};
+function stepProgress(incident: number, step: number): string {
+  const entries = entriesOf(incident, step)
+  const done = entries.filter((_, entry) => checked.value[`${incident}-${step}-${entry}`]).length
+  return `${done}/${entries.length}`
+}
 
-const getSchrittProgress = (eIdx: any, sIdx: any) => {
-  const e = eIdx.toString();
-  const s = sIdx.toString();
-  const funksprueche = getFunkspruecheForSchritt(eIdx, sIdx);
-  if (funksprueche.length === 0) return { done: 0, total: 0 };
-  
-  let done = 0;
-  funksprueche.forEach((_: any, fIdx: number) => {
-    if (checkedEntries.value[`${e}-${s}-${fIdx}`]) {
-      done++;
-    }
-  });
-  
-  return { done, total: funksprueche.length };
-};
+/** The step numbers of an incident, starting with the alerting as 0. */
+function stepsOf(incident: ScenarioIncident): number[] {
+  return Array.from({length: incident.schritte.length + 1}, (_, step) => step)
+}
 </script>
 
 <template>
-  <div class="mt-4 border border-themed rounded overflow-hidden bg-themed-input">
-    <div class="bg-themed-alt p-2 px-3 font-bold text-base uppercase tracking-wider border-b border-themed flex justify-between items-center">
-      <span>Szenario: {{ scenario.name }}</span>
-      <span class="text-xs font-mono bg-themed-overlay px-2 py-0.5 rounded border border-themed">
-        {{ progress.done }}/{{ progress.total }} ({{ progress.percent }}%)
-      </span>
+  <div class="overflow-hidden rounded-sm border border-default bg-muted">
+    <div class="flex items-center justify-between gap-2 border-b border-default bg-elevated px-3 py-2">
+      <span class="section-title">Szenario: {{ scenario.name }}</span>
+      <UBadge color="neutral" variant="outline" class="tabular">{{ progress.done }}/{{ progress.total }} ({{ progress.percent }} %)</UBadge>
     </div>
-    <div class="p-3">
-      <p class="text-sm text-themed-muted mb-3 italic">{{ scenario.beschreibung }}</p>
-
-      <div v-for="(einsatz, eIdx) in scenario.einsaetze" :key="eIdx" class="mb-4 last:mb-0">
-        <div
-          @click="toggleEinsatz(eIdx)"
-          class="bg-themed-alt p-2 rounded cursor-pointer hover:brightness-110 transition-colors flex justify-between items-center border border-themed shadow-sm"
-        >
-          <div class="flex flex-col">
-            <span class="font-bold text-base text-primary">{{ einsatz.stichwort }}</span>
-            <span class="text-sm text-themed-muted">{{ einsatz.adresse }}, {{ einsatz.ortsteil }}</span>
-          </div>
-          <span class="text-xs">{{ expandedEinsaetze[eIdx.toString()] ? '▲' : '▼' }}</span>
-        </div>
-
-        <div v-if="expandedEinsaetze[eIdx.toString()]" class="mt-2 ml-3 pl-3 border-l-2 border-themed flex flex-col gap-2">
-          <div v-for="sIdx in (einsatz.schritte.length + 1)" :key="sIdx-1" class="flex flex-col">
-            <div class="bg-themed-alt/60 p-2 rounded flex justify-between items-center border border-themed/50">
-              <div class="flex-1 cursor-pointer flex justify-between items-center mr-2" @click="toggleSchritt(eIdx, sIdx-1)">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold">{{ getSchrittLabel(einsatz, sIdx-1) }}</span>
-                  <span class="text-[10px] font-mono bg-themed-overlay/80 px-1.5 py-0.5 rounded text-themed-muted border border-themed">
-                    {{ getSchrittProgress(eIdx, sIdx-1).done }}/{{ getSchrittProgress(eIdx, sIdx-1).total }}
-                  </span>
-                </div>
-                <span class="text-xs ml-2">{{ expandedSchritte[`${eIdx}-${sIdx-1}`] ? '▲' : '▼' }}</span>
-              </div>
-              <button
-                @click.stop="markAllAsDone(eIdx, sIdx-1)"
-                class="text-[10px] bg-primary/20 hover:bg-primary/40 text-primary-light px-2 py-0.5 rounded border border-primary/30 transition-colors"
-              >
-                Alle erledigt
+    <div class="flex flex-col gap-4 p-3">
+      <p class="m-0 text-sm italic text-muted">{{ scenario.beschreibung }}</p>
+      <div v-for="(incident, incidentIndex) in scenario.einsaetze" :key="incidentIndex" class="flex flex-col gap-2">
+        <button type="button" class="flex items-center justify-between rounded-sm border border-default bg-elevated p-2 text-left hover:bg-accented"
+                :aria-expanded="!!expandedIncidents[incidentIndex]" @click="toggleIncident(incidentIndex)">
+          <span class="flex flex-col">
+            <span class="font-bold text-highlighted">{{ incident.stichwort }}</span>
+            <span class="text-sm text-muted">{{ incident.adresse }}, {{ incident.ortsteil }}</span>
+          </span>
+          <UIcon :name="expandedIncidents[incidentIndex] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-4"/>
+        </button>
+        <div v-if="expandedIncidents[incidentIndex]" class="ml-3 flex flex-col gap-2 border-l-2 border-default pl-3">
+          <div v-for="step in stepsOf(incident)" :key="step" class="flex flex-col gap-1">
+            <div class="flex items-center justify-between gap-2 rounded-sm border border-default bg-default p-2">
+              <button type="button" class="flex flex-1 items-center justify-between gap-2 text-left" :aria-expanded="!!expandedSteps[`${incidentIndex}-${step}`]"
+                      @click="toggleStep(incidentIndex, step)">
+                <span class="flex items-center gap-2">
+                  <span class="text-sm font-bold">{{ stepLabel(incident, step) }}</span>
+                  <UBadge color="neutral" variant="soft" size="sm" class="tabular">{{ stepProgress(incidentIndex, step) }}</UBadge>
+                </span>
+                <UIcon :name="expandedSteps[`${incidentIndex}-${step}`] ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="size-4"/>
               </button>
+              <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-check-check" @click="markStepDone(incidentIndex, step)">Alle erledigt</UButton>
             </div>
-
-            <div v-if="expandedSchritte[`${eIdx}-${sIdx-1}`]" class="mt-1 ml-2 flex flex-col gap-1">
-              <div
-                v-for="(entry, fIdx) in getFunkspruecheForSchritt(eIdx, sIdx-1)"
-                :key="fIdx"
-                class="flex items-start gap-2 p-1.5 rounded bg-themed-overlay/20 border border-themed/50 hover:bg-themed-overlay/30 transition-colors group"
-                @click="toggleEntry(eIdx, sIdx-1, fIdx)"
-              >
-                <div class="mt-0.5">
-                  <input
-                    type="checkbox"
-                    :checked="checkedEntries[`${eIdx}-${sIdx-1}-${fIdx}`]"
-                    @click.stop="toggleEntry(eIdx, sIdx-1, fIdx)"
-                    class="accent-primary w-3.5 h-3.5"
-                  >
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-0.5">
-                    <span class="text-xs font-mono text-themed-faint">#{{ entry.enr }}</span>
-                    <span class="text-sm font-bold" :class="getActorColor(entry.actor)">{{ entry.actor }}</span>
-                    <span v-if="entry.status" class="text-[10px] bg-secondary px-1 rounded text-white border border-themed">Status {{ entry.status }}</span>
+            <ul v-if="expandedSteps[`${incidentIndex}-${step}`]" class="m-0 ml-2 flex list-none flex-col gap-1 p-0">
+              <li v-for="(entry, entryIndex) in entriesOf(incidentIndex, step)" :key="entryIndex"
+                  class="flex items-start gap-2 rounded-sm border border-muted p-1.5">
+                <UCheckbox :model-value="!!checked[`${incidentIndex}-${step}-${entryIndex}`]" class="mt-0.5"
+                           :aria-label="`Funkspruch ${entryIndex + 1} erledigt`" @update:model-value="toggleEntry(incidentIndex, step, entryIndex)"/>
+                <div class="min-w-0 flex-1">
+                  <div class="mb-0.5 flex items-center gap-2">
+                    <span class="text-sm font-bold" :class="ACTOR_COLORS[entry.actor]">{{ entry.actor }}</span>
+                    <UBadge v-if="entry.status" color="neutral" variant="solid" size="sm">Status {{ entry.status }}</UBadge>
                   </div>
-                  <div
-                    class="text-sm leading-relaxed transition-all"
-                    :class="checkedEntries[`${eIdx}-${sIdx-1}-${fIdx}`] ? 'line-through text-themed-faint' : 'text-themed'"
-                  >
+                  <p class="m-0 text-sm leading-relaxed" :class="checked[`${incidentIndex}-${step}-${entryIndex}`] ? 'text-dimmed line-through' : 'text-default'">
                     {{ entry.message }}
-                  </div>
+                  </p>
                 </div>
-              </div>
-            </div>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
