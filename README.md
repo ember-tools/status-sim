@@ -34,6 +34,11 @@ codes counts as an access (polling, actions, opening one of its pages) and renew
 the server drops the exercise and its codes from memory within a minute. A vehicle that has not
 polled for five minutes is removed from its exercise earlier.
 
+With Redis persistence on (AOF), an expired key leaves the append-only file only when Redis
+rewrites it. `compose.prod.yml` therefore sets `auto-aof-rewrite-min-size` to 1 MB, so even a small
+instance rewrites the file regularly and expired exercises do not linger on disk; keep that setting
+when running Redis elsewhere.
+
 In the browser, Status Sim keeps per exercise the name and radio channel of dispatchers and unit
 leaders and whether requests to talk are combined (`localStorage` keys `statussim.dispatch` and
 `statussim.unit-leader`, entries dropped after seven days), and the colour mode
