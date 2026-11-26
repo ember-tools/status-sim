@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {nextTick, onBeforeUnmount, onMounted, ref, watch} from 'vue'
+import {usePolling} from '@emberbox/ui'
+import {nextTick, ref, watch} from 'vue'
 import {get, post} from '../api'
 import {useAction} from '../composables/useAction'
 import {exercisePath} from '../exercise'
@@ -18,45 +19,38 @@ const props = defineProps<{
 }>()
 
 const CHAT_INTERVAL_MS = 3000
+const CHAT_MAX_INTERVAL_MS = 10_000
 const {attempt} = useAction()
 
 const message = ref('')
 const note = ref(props.note)
 const log = ref<InstanceType<typeof ChatLog> | null>(null)
 const messages = ref<ChatMessage[]>([])
-const loading = ref(false)
-let timer: ReturnType<typeof setInterval> | undefined
+const loading = ref(true)
 
+/** Loads the chat with the target; a failure leaves the shown messages until the next poll. */
 async function loadMessages(): Promise<void> {
   try {
     const answer = await get<{ messages: ChatMessage[] }>(`${exercisePath(props.code)}/chat_history`, {target_name: props.targetName})
     messages.value = answer.messages
     await nextTick()
     log.value?.scrollToEnd()
-  } catch {
-    return
+  } finally {
+    loading.value = false
   }
 }
+
+const {refresh} = usePolling(loadMessages, {intervalMs: CHAT_INTERVAL_MS, maxIntervalMs: CHAT_MAX_INTERVAL_MS})
 
 watch(() => props.note, value => {
   note.value = value
 })
 
-onMounted(() => {
-  loading.value = true
-  void loadMessages().finally(() => {
-    loading.value = false
-  })
-  timer = setInterval(() => void loadMessages(), CHAT_INTERVAL_MS)
-})
-
-onBeforeUnmount(() => clearInterval(timer))
-
 async function send(): Promise<void> {
   if (!message.value.trim()) return
   if (!await attempt(() => post(`${exercisePath(props.code)}/message`, {message: message.value, target_name: props.targetName}))) return
   message.value = ''
-  await loadMessages()
+  await refresh()
 }
 
 async function saveNote(): Promise<void> {
