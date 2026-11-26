@@ -40,19 +40,20 @@ export function parseLocation(url: string): Location {
 /**
  * Decides which page an address shows. `/leitstelle/<code>` and `/staffelfuehrer/<code>` open the
  * dispatch and unit leader views, `/status?code=…&name=…` the vehicle; anything unknown shows the
- * landing page.
+ * landing page. Trailing slashes do not count, so `/hilfe/` is the help as the backend serves it.
  *
  * @param location the address
  * @returns the page
  */
 export function resolvePage(location: Location): Page {
-    const [, section, code, rest] = location.path.split('/')
-    if (location.path === '/hilfe') return {view: 'help'}
+    const path = location.path.replace(/\/+$/, '') || '/'
+    const [, section, code, rest] = path.split('/')
+    if (path === '/hilfe') return {view: 'help'}
     if (section === 'leitstelle' && code && rest === undefined) return {view: 'dispatch', code}
     if (section === 'staffelfuehrer' && code && rest === undefined) return {view: 'unitLeader', code}
     const vehicleCode = location.query.get('code')
     const name = location.query.get('name')
-    if (location.path === '/status' && vehicleCode && name) return {view: 'vehicle', code: vehicleCode, name}
+    if (path === '/status' && vehicleCode && name) return {view: 'vehicle', code: vehicleCode, name}
     return {view: 'landing'}
 }
 
