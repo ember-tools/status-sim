@@ -1,4 +1,5 @@
 import {type App, inject, type InjectionKey, type Ref, ref} from 'vue'
+import {HELP_TOPICS, type HelpSlug} from './helpTopics'
 
 /** The part of the address the app routes by. */
 export interface Location {
@@ -19,6 +20,7 @@ export interface Navigation {
 export type Page =
     | { view: 'landing' }
     | { view: 'help' }
+    | { view: 'helpTopic', slug: HelpSlug }
     | { view: 'dispatch', code: string }
     | { view: 'unitLeader', code: string }
     | { view: 'vehicle', code: string, name: string }
@@ -39,7 +41,8 @@ export function parseLocation(url: string): Location {
 
 /**
  * Decides which page an address shows. `/leitstelle/<code>` and `/staffelfuehrer/<code>` open the
- * dispatch and unit leader views, `/status?code=…&name=…` the vehicle; anything unknown shows the
+ * dispatch and unit leader views, `/status?code=…&name=…` the vehicle; `/hilfe/<topic>` a help topic, an
+ * unknown topic the help overview; anything unknown shows the
  * landing page. Trailing slashes do not count, so `/hilfe/` is the help as the backend serves it.
  *
  * @param location the address
@@ -49,6 +52,10 @@ export function resolvePage(location: Location): Page {
     const path = location.path.replace(/\/+$/, '') || '/'
     const [, section, code, rest] = path.split('/')
     if (path === '/hilfe') return {view: 'help'}
+    if (section === 'hilfe' && code && rest === undefined) {
+        const topic = HELP_TOPICS.find(candidate => candidate.slug === code)
+        return topic ? {view: 'helpTopic', slug: topic.slug} : {view: 'help'}
+    }
     if (section === 'leitstelle' && code && rest === undefined) return {view: 'dispatch', code}
     if (section === 'staffelfuehrer' && code && rest === undefined) return {view: 'unitLeader', code}
     const vehicleCode = location.query.get('code')

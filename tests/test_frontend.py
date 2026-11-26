@@ -16,13 +16,15 @@ from main import app
 
 @pytest.fixture
 def build(tmp_path: Path) -> Path:
-    """A built frontend with the shell, two prerendered pages, `build.json`, the manifest and one asset."""
+    """A built frontend with the shell, three prerendered pages, `build.json`, the manifest and one asset."""
     directory = tmp_path / "dist"
     (directory / "assets").mkdir(parents=True)
     (directory / "pages" / "hilfe").mkdir(parents=True)
     (directory / "index.html").write_text("<!doctype html><title>shell</title>")
     (directory / "pages" / "index.html").write_text("<!doctype html><title>landing</title>")
     (directory / "pages" / "hilfe" / "index.html").write_text("<!doctype html><title>help</title>")
+    (directory / "pages" / "hilfe" / "status").mkdir()
+    (directory / "pages" / "hilfe" / "status" / "index.html").write_text("<!doctype html><title>topic</title>")
     (directory / "build.json").write_text("{}")
     (directory / "manifest.webmanifest").write_text("{}")
     (directory / "favicon.svg").write_text("<svg/>")
@@ -47,7 +49,7 @@ def server(build: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def test_prerendered_pages_are_served_for_indexing(client):
-    for path, title in (("/", "landing"), ("/hilfe", "help"), ("/hilfe/", "help")):
+    for path, title in (("/", "landing"), ("/hilfe", "help"), ("/hilfe/", "help"), ("/hilfe/status", "topic")):
         response = client.get(path)
         assert f"<title>{title}</title>" in response.text, path
         assert "x-robots-tag" not in response.headers, path
@@ -67,9 +69,10 @@ def test_the_manifest_has_its_media_type(client):
 
 
 def test_other_paths_get_the_shell_kept_out_of_search_engines(client):
-    response = client.get("/unknown/path")
-    assert "<title>shell</title>" in response.text
-    assert response.headers["x-robots-tag"] == "noindex, nofollow"
+    for path in ("/unknown/path", "/hilfe/unbekannt"):
+        response = client.get(path)
+        assert "<title>shell</title>" in response.text, path
+        assert response.headers["x-robots-tag"] == "noindex, nofollow", path
 
 
 def test_each_page_has_one_address_only(client):

@@ -43,7 +43,7 @@ def mount_frontend(app: FastAPI, directory: Path) -> None:
 def frontend_response(directory: Path, path: str) -> FileResponse:
     """Resolve a path to a prerendered page, a built file or the single-page shell.
 
-    A prerendered page (`/` and `/hilfe`) comes from `pages/<path>/index.html`. A built file is
+    A prerendered page (`/`, `/hilfe` and the help topics below it) comes from `pages/<path>/index.html`. A built file is
     served as it is, except the shell itself and the prerendered pages under their file names, so
     each page has one address. `build.json` is never cached, so open pages notice a new build. A
     missing file under `assets/` is a 404 rather than the shell, so a page still running an older

@@ -79,7 +79,8 @@ Everything runs through `./toolchain.sh`, inside the nix shell of `shell.nix` vi
 
 The backend is FastAPI (`src/`), the frontend Vue 3 with [`@emberbox/ui`](https://github.com/ember-tools/emberbox)
 and Nuxt UI (`frontend/`). The frontend has no vue-router; `src/navigation.ts` maps the address to
-a view. The landing page and the help (`/hilfe`) are prerendered at build time; the backend serves
+a view. The landing page, the help overview (`/hilfe`) and one page per help topic (`/hilfe/<topic>`,
+listed in `frontend/src/helpTopics.ts`) are prerendered at build time; the backend serves
 them from `pages/`, every other path gets the single-page shell with `X-Robots-Tag: noindex`.
 
 ## License
