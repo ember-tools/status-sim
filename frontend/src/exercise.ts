@@ -40,7 +40,8 @@ export function roleOf(code: string, name: string): Promise<JoinAnswer> {
 }
 
 /**
- * The address of a role's view.
+ * The address of a role's view. Only a vehicle takes the call sign along; dispatch and unit leader
+ * keep the name they saved for the exercise, or get the default.
  *
  * @param role the role
  * @param code the code to join with
@@ -48,14 +49,13 @@ export function roleOf(code: string, name: string): Promise<JoinAnswer> {
  * @returns the path with its query
  */
 export function joinPath(role: Role, code: string, name: string): string {
-    const query = new URLSearchParams({code, name})
     switch (role) {
         case 'dispatch':
             return `/leitstelle/${encodeURIComponent(code)}`
         case 'unit_leader':
-            return `/staffelfuehrer/${encodeURIComponent(code)}?${new URLSearchParams({name})}`
+            return `/staffelfuehrer/${encodeURIComponent(code)}`
         case 'vehicle':
-            return `/status?${query}`
+            return `/status?${new URLSearchParams({code, name})}`
     }
 }
 
