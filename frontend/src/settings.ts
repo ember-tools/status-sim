@@ -39,15 +39,48 @@ function readAll(role: SettingsRole): Record<string, ExerciseSettings> {
     }
 }
 
+/** Keys earlier versions kept per exercise, as prefixes followed by the code. */
+const RETIRED_PREFIXES = ['ls_name_', 'ls_channel_', 'ls_combine_', 'sf_name_', 'radio_channel_']
+
+/** Keys earlier versions kept once per browser; `theme` was the old colour mode. */
+const RETIRED_KEYS = ['theme']
+
+let retiredRemoved = false
+
 /**
- * The settings saved for an exercise.
+ * Removes what earlier versions left in the browser, once per page load. Those keys carry the
+ * exercise code in their name, so they are found by scanning the storage for the retired prefixes
+ * and removed through a `Storage` reference: the browser storage catalogue lists only the keys
+ * Status Sim keeps and accepts literal keys only, which a scan over retired keys cannot give.
+ */
+function removeRetiredKeys(): void {
+    if (retiredRemoved) return
+    retiredRemoved = true
+    try {
+        const storage: Storage = localStorage
+        const retired = Array.from({length: storage.length}, (_, index) => storage.key(index))
+            .filter((key): key is string => key !== null)
+            .filter(key => RETIRED_KEYS.includes(key) || RETIRED_PREFIXES.some(prefix => key.startsWith(prefix)))
+        retired.forEach(key => storage.removeItem(key))
+    } catch {
+        return
+    }
+}
+
+/**
+ * The settings saved for an exercise. Loading counts as use, so an exercise opened every day keeps
+ * its settings; old keys of earlier versions are cleared on the first load.
  *
  * @param role whose settings
  * @param code the exercise's code of that role
  * @returns the settings, empty when nothing was saved
  */
 export function loadSettings(role: SettingsRole, code: string): ExerciseSettings {
-    return readAll(role)[code] ?? {}
+    removeRetiredKeys()
+    const settings = readAll(role)[code]
+    if (!settings) return {}
+    saveSettings(role, code, {})
+    return settings
 }
 
 /**
