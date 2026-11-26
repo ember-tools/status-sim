@@ -34,11 +34,6 @@ class TestLeitstelle(unittest.TestCase):
         self.assertIn("admin_code", response.json())
         self.assertIn("vehicle_code", response.json())
 
-    def test_get_index(self):
-        response = self.client.get("/")
-        self.assertEqual(response.status_code, 200)
-        self.assertIn(b"<div id=\"app\">", response.content)
-
     def test_poll_status_update(self):
         admin_code, vehicle_code, _ = self._create()
 

@@ -53,11 +53,7 @@ function randomCallSign(): string {
 
 onMounted(() => {
   callSign.value = randomCallSign()
-  const query = new URLSearchParams(window.location.search)
-  code.value = query.get('code') ?? ''
-  if (query.get('error') === 'name_taken') {
-    error.value = 'Der Funkrufname ist schon vergeben. Ein neuer wurde vorgeschlagen.'
-  }
+  code.value = new URLSearchParams(window.location.search).get('code') ?? ''
 })
 
 async function create(): Promise<void> {

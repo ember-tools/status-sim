@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from fastapi import APIRouter
+from fastapi.responses import RedirectResponse
 import json
 import uuid
 import time
@@ -15,6 +15,7 @@ from models import (
     ClaimRequest, VehicleActionRequest, SfChannelRequest,
 )  # type: ignore
 from logging_conf import get_logger  # type: ignore
+from frontend import frontend_directory, shell_response  # type: ignore
 from scenario_models import Scenario, FunkEntry  # type: ignore
 
 logger = get_logger("api")
@@ -22,10 +23,6 @@ logger = get_logger("api")
 router = APIRouter()
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_dir)
-_frontend_dist_primary = os.path.join(current_dir, "frontend_dist")
-_frontend_dist_legacy = os.path.join(project_root, "frontend", "dist")
-frontend_dist = _frontend_dist_primary if os.path.exists(_frontend_dist_primary) else _frontend_dist_legacy
 
 SCENARIOS_DIR = os.path.join(current_dir, "static", "scenarios")
 
@@ -136,61 +133,44 @@ def _append_chat(ls: LeitstelleData, vehicle_name: str, sender: str, text: str):
 
 
 # ---------------------------------------------------------------------------
-# HTML serving
+# Exercise pages
 # ---------------------------------------------------------------------------
 
-async def serve_vue_index(request: Request):
-    index_path = os.path.join(frontend_dist, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return HTMLResponse(content="Frontend not found", status_code=404)
+def _home() -> RedirectResponse:
+    """Send the browser to the landing page."""
+    return RedirectResponse(url="/", status_code=307)
 
 
-@router.get("/", response_class=HTMLResponse)
-async def get_index(request: Request):
-    return await serve_vue_index(request)
-
-
-@router.get("/hilfe", response_class=HTMLResponse)
-async def get_help(request: Request):
-    return await serve_vue_index(request)
-
-
-@router.get("/leitstelle/{code}", response_class=HTMLResponse)
-async def get_leitstelle_view(request: Request, code: str):
+@router.get("/leitstelle/{code}", include_in_schema=False)
+async def get_leitstelle_view(code: str):
+    """Open the dispatch view, or the landing page when the code is unknown."""
     if code.upper() not in manager.leitstellen:
-        return RedirectResponse(url="/", status_code=307)
-    return await serve_vue_index(request)
+        return _home()
+    return shell_response(frontend_directory())
 
 
-@router.get("/staffelfuehrer/{code}", response_class=HTMLResponse)
-async def get_staffelfuehrer_view(request: Request, code: str):
+@router.get("/staffelfuehrer/{code}", include_in_schema=False)
+async def get_staffelfuehrer_view(code: str):
+    """Open the unit leader view, or the landing page when the code is unknown."""
     admin_code, _ = _require_sf(code)
     if not admin_code:
-        return RedirectResponse(url="/", status_code=307)
-    return await serve_vue_index(request)
+        return _home()
+    return shell_response(frontend_directory())
 
 
-@router.get("/status", response_class=HTMLResponse)
-async def get_status_page(request: Request, code: str, name: str):
+@router.get("/status", include_in_schema=False)
+async def get_status_page(code: str = "", name: str = ""):
+    """Open the vehicle view; a unit leader code goes to its own view, anything else to the landing page."""
     code_upper = code.upper()
     admin_code = manager.code_to_admin.get(code_upper)
-    if not admin_code or admin_code not in manager.leitstellen:
-        return RedirectResponse(url="/", status_code=307)
-
+    if not admin_code or admin_code not in manager.leitstellen or not name:
+        return _home()
     ls = manager.leitstellen[admin_code]
     if ls.vehicle_code == code_upper:
-        existing = manager.find_connection(ls, name)
-        if existing and manager.is_online(existing):
-            return RedirectResponse(
-                url=f"/?error=name_taken&old_name={name}&code={code_upper}",
-                status_code=307,
-            )
-        return await serve_vue_index(request)
-    elif ls.staffelfuehrer_code == code_upper:
+        return shell_response(frontend_directory())
+    if ls.staffelfuehrer_code == code_upper:
         return RedirectResponse(url=f"/staffelfuehrer/{code_upper}", status_code=307)
-
-    return RedirectResponse(url="/", status_code=307)
+    return _home()
 
 
 # ---------------------------------------------------------------------------
