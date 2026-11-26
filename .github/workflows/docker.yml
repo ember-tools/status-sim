@@ -1,35 +1,46 @@
-name: Docker Build
+name: Docker
 
 on:
-  release:
-    types:
-      - published
   push:
-    tags:
     branches:
       - main
-      - dev
+    tags:
+      - "v*"
+  pull_request:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/ember-tools/status-sim
 
 jobs:
-  docker-build:
+  image:
     runs-on: ubuntu-latest
-    name: Deploy Docker Image
-
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v6
-      - name: Build Image
-        run: docker build . -t ghcr.io/rainbowdashlabs/status-sim:${{ github.sha }}
-      - name: Login to Registry
-        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login -u $ --password-stdin ghcr.io
-      - name: Push image
+      - name: Build image
+        run: >-
+          docker build . -t "$IMAGE:${{ github.sha }}"
+          --build-arg COMMIT="$(git rev-parse --short HEAD)"
+          --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      - name: Log in to the registry
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Push commit and ref tags
+        if: github.event_name == 'push'
         run: |
-          docker push ghcr.io/rainbowdashlabs/status-sim:${{ github.sha }}
-      - name: Tag & Push branch image
+          docker push "$IMAGE:${{ github.sha }}"
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:${{ github.ref_name }}"
+          docker push "$IMAGE:${{ github.ref_name }}"
+      - name: Push latest
+        if: github.event_name == 'push' && github.ref_name == 'main'
         run: |
-          docker image tag ghcr.io/rainbowdashlabs/status-sim:${{ github.sha }} ghcr.io/rainbowdashlabs/status-sim:${{ github.ref_name }}
-          docker push ghcr.io/rainbowdashlabs/status-sim:${{ github.ref_name }}
-      - name: Tag & Push latest image
-        if: github.ref_name == 'main'
-        run: |
-          docker image tag ghcr.io/rainbowdashlabs/status-sim:${{ github.sha }} ghcr.io/rainbowdashlabs/status-sim:latest
-          docker push ghcr.io/rainbowdashlabs/status-sim:latest
+          docker tag "$IMAGE:${{ github.sha }}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"

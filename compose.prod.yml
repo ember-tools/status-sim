@@ -1,0 +1,33 @@
+name: status-sim
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  app:
+    image: ghcr.io/ember-tools/status-sim:latest
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: https://statussim.emberbox.app
+    depends_on:
+      redis:
+        condition: service_healthy
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.statussim.rule: "Host(`statussim.emberbox.app`)"
+      traefik.http.routers.statussim.entrypoints: websecure
+      traefik.http.routers.statussim.tls.certresolver: letsencrypt
+      traefik.http.services.statussim.loadbalancer.server.port: "8000"
+
+volumes:
+  redis-data:

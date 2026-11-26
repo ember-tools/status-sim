@@ -1,0 +1,23 @@
+name: Verify
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+      - name: Install dependencies
+        run: nix-shell --run "./toolchain.sh be-install && ./toolchain.sh fe-install-clean"
+      - name: Verify
+        run: nix-shell --run "./toolchain.sh verify"
