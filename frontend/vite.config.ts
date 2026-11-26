@@ -11,6 +11,7 @@ export default defineConfig({
             url: 'https://statussim.emberbox.app',
             logo: 'statussim',
             router: false,
+            prerender: {entry: 'src/prerender.ts', paths: ['/', '/hilfe']},
         }),
     ],
     server: {
