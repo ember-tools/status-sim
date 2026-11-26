@@ -128,10 +128,6 @@ class TestLeitstelle(unittest.TestCase):
         self.assertIsNone(car1["special"])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TestJoin(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
@@ -153,3 +149,7 @@ class TestJoin(unittest.TestCase):
 
     def test_unknown_code_is_refused(self):
         self.assertEqual(self._join("NOPE")["status"], "error")
+
+
+if __name__ == "__main__":
+    unittest.main()
