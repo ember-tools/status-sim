@@ -9,6 +9,12 @@
       "key": "statussim.unit-leader",
       "purpose": "Je Übung der Name und Funkkanal des Staffelführers; Einträge verfallen nach sieben Tagen.",
       "kind": "LOCAL_STORAGE"
+    },
+    {
+      "key": "vueuse-color-scheme",
+      "purpose": "Ob die Seite hell oder dunkel erscheint.",
+      "kind": "LOCAL_STORAGE",
+      "source": "@emberbox/ui"
     }
   ]
 }
