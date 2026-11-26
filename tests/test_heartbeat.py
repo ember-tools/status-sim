@@ -20,11 +20,9 @@ class TestHeartbeat(unittest.TestCase):
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
 
-        # Register via poll
         self.client.get(f"/api/poll/{vehicle_code}", params={"name": "Car1"})
         self.assertEqual(len([c for c in manager.leitstellen[admin_code].connections if not c.is_leitstelle]), 1)
 
-        # Simulate inactivity
         for c in manager.leitstellen[admin_code].connections:
             if c.name == "Car1":
                 c.last_update = time.time() - 400
@@ -39,14 +37,12 @@ class TestHeartbeat(unittest.TestCase):
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
 
-        # Register
         self.client.get(f"/api/poll/{vehicle_code}", params={"name": "Car1"})
         conn = manager.find_connection(manager.leitstellen[admin_code], "Car1")
         initial_update = conn.last_update
 
         time.sleep(0.05)
 
-        # Poll again (acts as heartbeat)
         self.client.get(f"/api/poll/{vehicle_code}", params={"name": "Car1"})
         self.assertGreater(conn.last_update, initial_update)
 

@@ -6,17 +6,17 @@ import time
 import os
 import random
 
-from manager import manager  # type: ignore
+from manager import manager
 from models import (
     LeitstelleData, Connection, Notice, ChatMessage,
     MessageRequest, TargetRequest, NoticeRequest,
     NoteRequest, StatusRequest, LeitstelleCreateRequest,
     ScenarioStartRequest, ChecklistUpdateRequest, ChecklistState,
     ClaimRequest, VehicleActionRequest, SfChannelRequest,
-)  # type: ignore
-from logging_conf import get_logger  # type: ignore
-from frontend import frontend_directory, shell_response  # type: ignore
-from scenario_models import Scenario, FunkEntry  # type: ignore
+)
+from logging_conf import get_logger
+from frontend import frontend_directory, shell_response
+from scenario_models import Scenario, FunkEntry
 
 logger = get_logger("api")
 
@@ -26,10 +26,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 
 SCENARIOS_DIR = os.path.join(current_dir, "static", "scenarios")
 
-
-# ---------------------------------------------------------------------------
-# Health
-# ---------------------------------------------------------------------------
 
 @router.get("/api/health")
 async def health():
@@ -47,10 +43,6 @@ async def health():
         "leitstellen": len(manager.leitstellen),
     }
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _error(message: str):
     return {"status": "error", "message": message}
@@ -145,10 +137,6 @@ def _append_chat(ls: LeitstelleData, vehicle_name: str, sender: str, text: str):
         history[:] = history[-200:]
 
 
-# ---------------------------------------------------------------------------
-# Exercise pages
-# ---------------------------------------------------------------------------
-
 def _home() -> RedirectResponse:
     """Send the browser to the landing page."""
     return RedirectResponse(url="/", status_code=307)
@@ -185,10 +173,6 @@ async def get_status_page(code: str = "", name: str = ""):
         return RedirectResponse(url=f"/staffelfuehrer/{code_upper}", status_code=307)
     return _home()
 
-
-# ---------------------------------------------------------------------------
-# Leitstelle management
-# ---------------------------------------------------------------------------
 
 @router.post("/api/leitstelle")
 async def create_leitstelle(request: LeitstelleCreateRequest):
@@ -267,10 +251,6 @@ async def join(code: str, name: str = ""):
     }
 
 
-# ---------------------------------------------------------------------------
-# Polling
-# ---------------------------------------------------------------------------
-
 @router.get("/api/poll/{code}")
 async def poll(code: str, name: str | None = None):
     code_upper = code.upper()
@@ -329,10 +309,6 @@ async def poll(code: str, name: str | None = None):
     return response
 
 
-# ---------------------------------------------------------------------------
-# Vehicle actions
-# ---------------------------------------------------------------------------
-
 @router.post("/api/vehicle/{code}/action")
 async def vehicle_action(code: str, request: VehicleActionRequest):
     admin_code, ls = await _require_leitstelle(code)
@@ -370,10 +346,6 @@ async def vehicle_action(code: str, request: VehicleActionRequest):
     return {"status": "success"}
 
 
-# ---------------------------------------------------------------------------
-# Messages
-# ---------------------------------------------------------------------------
-
 @router.post("/api/leitstelle/{code}/message")
 async def send_message(code: str, request: MessageRequest):
     admin_code, ls = await _require_leitstelle(code)
@@ -401,10 +373,6 @@ async def get_chat_history(code: str, target_name: str):
     history = ls.chat_history.get(target_name, [])
     return {"status": "success", "messages": [m.model_dump() for m in history]}
 
-
-# ---------------------------------------------------------------------------
-# Leitstelle actions
-# ---------------------------------------------------------------------------
 
 @router.post("/api/leitstelle/{code}/clear_special")
 async def clear_special(code: str, request: TargetRequest):
@@ -508,10 +476,6 @@ async def set_ls_channel(code: str, request: SfChannelRequest):
     return {"status": "success"}
 
 
-# ---------------------------------------------------------------------------
-# Staffelfuehrer actions
-# ---------------------------------------------------------------------------
-
 @router.post("/api/staffelfuehrer/{code}/notice")
 async def send_notice(code: str, request: NoticeRequest):
     admin_code, ls = await _require_sf(code)
@@ -586,10 +550,6 @@ async def set_sf_channel(code: str, request: SfChannelRequest):
     await manager.persist(admin_code)
     return {"status": "success"}
 
-
-# ---------------------------------------------------------------------------
-# Scenarios
-# ---------------------------------------------------------------------------
 
 @router.get("/api/leitstelle/{code}/scenarios")
 async def list_scenarios(code: str):

@@ -1,0 +1,8 @@
+{
+  "path": ["src"],
+  "format": ["typescript", "vue"],
+  "minLines": 10,
+  "ignore": ["**/*.d.ts"],
+  "reporters": ["console"],
+  "threshold": 0.6
+}

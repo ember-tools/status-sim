@@ -4,8 +4,6 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 
 
-# --- Request models ---
-
 class LeitstelleCreateRequest(BaseModel):
     name: str
 
@@ -66,8 +64,6 @@ class SfChannelRequest(BaseModel):
     name: str
     channel: str
 
-
-# --- Domain models ---
 
 class Notice(BaseModel):
     text: str

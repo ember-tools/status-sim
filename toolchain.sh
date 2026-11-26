@@ -46,7 +46,13 @@ Frontend
   fe-dev                Vite dev server with the proxy to a local backend
   fe-typecheck          vue-tsc
   fe-bundle             Production build with the prerendered pages
-  fe-build              Full verification: type check and build
+  fe-lint [name] [args] Every linter of @emberbox/lint, as frontend/emberbox-lint.config.mjs sets
+                        them up, failing when one does.
+                        With a name only that one: eslint, duplication, browser-storage,
+                        em-dash, comments
+  fe-audit              All linters, non-gating; prints everything they find
+  fe-eslint [args]      ESLint directly
+  fe-build              Full verification: linters, type check and build
 
 Backend
   be-install            pipenv sync --dev
@@ -105,7 +111,11 @@ case "$cmd" in
     fe-dev)           fe; run npm run dev -- "$@" ;;
     fe-typecheck)     fe; run npx vue-tsc -b "$@" ;;
     fe-bundle)        fe; run npx vite build "$@" ;;
+    fe-lint)          fe; run npx emberbox-lint "$@" ;;
+    fe-audit)         fe; run npx emberbox-lint --audit ;;
+    fe-eslint)        fe; run npx eslint "$@" ;;
     fe-build)
+        "$ROOT/toolchain.sh" fe-lint
         "$ROOT/toolchain.sh" fe-typecheck
         "$ROOT/toolchain.sh" fe-bundle
         ;;

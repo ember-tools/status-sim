@@ -1,8 +1,8 @@
 import time
 from typing import Dict, Optional, Tuple
 
-from models import LeitstelleData, Connection, VehicleStatus, StatusUpdate  # type: ignore
-from logging_conf import get_logger  # type: ignore
+from models import LeitstelleData, Connection, VehicleStatus, StatusUpdate
+from logging_conf import get_logger
 
 logger = get_logger("manager")
 
@@ -20,9 +20,6 @@ class ConnectionManager:
         self.last_access: Dict[str, float] = {}
         self._redis = None
 
-    # ------------------------------------------------------------------
-    # Redis persistence and retention
-    # ------------------------------------------------------------------
 
     async def init_redis(self, redis_url: str):
         import redis.asyncio as aioredis
@@ -117,9 +114,6 @@ class ConnectionManager:
         if self._redis:
             await self._redis.aclose()
 
-    # ------------------------------------------------------------------
-    # Lookups
-    # ------------------------------------------------------------------
 
     def resolve_admin_code(self, code: str) -> Optional[str]:
         upper = code.upper()
@@ -139,9 +133,6 @@ class ConnectionManager:
     def is_online(self, connection: Connection) -> bool:
         return (time.time() - connection.last_update) < ONLINE_TIMEOUT
 
-    # ------------------------------------------------------------------
-    # Status building
-    # ------------------------------------------------------------------
 
     def build_status_update(self, admin_code: str) -> Optional[StatusUpdate]:
         if admin_code not in self.leitstellen:
@@ -151,7 +142,6 @@ class ConnectionManager:
         now = time.time()
         vehicles = []
 
-        # Build lookup for LS/SF channels by operator name
         ls_channels = {c.name: c.radio_channel for c in ls.connections if c.is_leitstelle and c.radio_channel}
         sf_channels = {c.name: c.radio_channel for c in ls.connections if c.is_staffelfuehrer and c.radio_channel}
 
@@ -219,9 +209,6 @@ class ConnectionManager:
 
         return None
 
-    # ------------------------------------------------------------------
-    # Cleanup
-    # ------------------------------------------------------------------
 
     async def cleanup_inactive(self):
         now = time.time()

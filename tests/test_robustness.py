@@ -30,14 +30,11 @@ class TestPollingRobustness(unittest.TestCase):
         admin_code = resp.json()["admin_code"]
         vehicle_code = resp.json()["vehicle_code"]
 
-        # Initial registration
         self.client.get(f"/api/poll/{vehicle_code}", params={"name": "Car1"})
 
-        # Simulate inactivity by setting last_update to the past
         conn = manager.find_connection(manager.leitstellen[admin_code], "Car1")
         conn.last_update = time.time() - 60
 
-        # Should still be able to poll (reconnect)
         data = self.client.get(f"/api/poll/{vehicle_code}", params={"name": "Car1"}).json()
         self.assertEqual(data["type"], "status_update")
         me = next(c for c in data["connections"] if c["name"] == "Car1")

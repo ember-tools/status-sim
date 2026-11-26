@@ -6,10 +6,10 @@ import os
 import random
 import time
 
-from manager import manager  # type: ignore
-from models import LeitstelleData, Connection, ChatMessage, ChecklistState, Notice  # type: ignore
-from scenario_models import Scenario, FunkEntry  # type: ignore
-from logging_conf import get_logger  # type: ignore
+from manager import manager
+from models import LeitstelleData, Connection, ChatMessage, ChecklistState, Notice
+from scenario_models import Scenario, FunkEntry
+from logging_conf import get_logger
 
 logger = get_logger("demo")
 
@@ -109,7 +109,6 @@ async def run_demo():
                 status=random.choice(["1", "2", "3"]),
             ))
 
-        # Give a couple of vehicles an active scenario
         for v in random.sample(VEHICLES, min(3, len(VEHICLES))):
             _start_scenario_for(ls, v)
 
@@ -223,7 +222,6 @@ async def _action_loop(ls: LeitstelleData):
             scen = ls.active_scenarios.get(vehicle.name)
             if state and scen:
                 entries = scen.get("generated_entries", [])
-                # Find next unchecked entry
                 for i, entry in enumerate(entries):
                     msg = entry.get("message", "")
                     if not msg.startswith("[[E"):
@@ -239,7 +237,6 @@ async def _action_loop(ls: LeitstelleData):
                     if not state.checked_entries.get(key):
                         state.checked_entries[key] = True
                         vehicle.last_activity = now
-                        # Check a few consecutive entries at once
                         for _ in range(random.randint(0, 3)):
                             i += 1
                             if i >= len(entries):
@@ -256,7 +253,6 @@ async def _action_loop(ls: LeitstelleData):
                             f2 = sum(1 for prev in entries[:i] if prev.get("message", "").startswith(prefix2))
                             state.checked_entries[f"{e2}-{s2}-{f2}"] = True
                         break
-                # If all checked, discard and start new
                 total = len([e for e in entries if e.get("message", "").startswith("[[E")])
                 done = sum(1 for v in state.checked_entries.values() if v)
                 if total > 0 and done >= total:

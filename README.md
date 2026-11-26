@@ -37,7 +37,7 @@ polled for five minutes is removed from its exercise earlier.
 In the browser, Status Sim keeps per exercise the name and radio channel of dispatchers and unit
 leaders and whether requests to talk are combined (`localStorage` keys `statussim.dispatch` and
 `statussim.unit-leader`, entries dropped after seven days), and the colour mode
-(`vueuse-color-scheme`).
+(`vueuse-color-scheme`). `frontend/browser-storage.json` lists the keys the code uses.
 
 ## Running it
 
@@ -68,6 +68,7 @@ Everything runs through `./toolchain.sh`, inside the nix shell of `shell.nix` vi
 ./toolchain.sh be-dev      # backend on port 8000
 ./toolchain.sh fe-dev      # Vite dev server, proxies /api to the backend
 ./toolchain.sh verify      # everything CI runs
+./toolchain.sh fe-lint     # ESLint, duplication, comments, em dashes, browser storage
 ./toolchain.sh docker-app  # local stack with Redis from compose.yml
 ```
 

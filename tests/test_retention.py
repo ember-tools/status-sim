@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
 
-import manager as manager_module  # noqa: E402
-from main import app  # noqa: E402
-from manager import REDIS_KEY_PREFIX, RETENTION_SECONDS, ConnectionManager, manager  # noqa: E402
-from models import LeitstelleData  # noqa: E402
+import manager as manager_module
+from main import app
+from manager import REDIS_KEY_PREFIX, RETENTION_SECONDS, ConnectionManager, manager
+from models import LeitstelleData
 
 DAY = 24 * 3600
 

@@ -15,7 +15,7 @@ class Einheit(BaseModel):
     """Eine Einheit (z.B. C-Dienst, NEF, RTW, DLK, LHF)."""
     typ: str
     anzahl: int = 1
-    kennung: Optional[str] = None  # Optional, falls eine spezifische Kennung gewünscht ist
+    kennung: Optional[str] = None
 
     def _generate_single_name(self) -> str:
         if self.kennung and self.anzahl == 1:
@@ -52,7 +52,6 @@ class Einheit(BaseModel):
                 return self.typ
 
     def generate_names(self) -> List[str]:
-        # Wenn eine spezifische Kennung angegeben ist und anzahl==1, diese verwenden
         if self.kennung and self.anzahl == 1:
             return [self.kennung]
         names = set()
@@ -86,10 +85,10 @@ class FunkContext(BaseModel):
 class Lagemeldung(BaseModel):
     """Lagemeldung in der richtigen Reihenfolge (wird für SF geshuffled)."""
     lage: Optional[str] = "Einsatzstelle unter Kontrolle (EstuK)"
-    geraete: Optional[str] = None  # z.B. "1 C-Rohr, 2 PA"
-    beschreibung: Optional[str] = None  # z.B. "Kellerbrand, Mehrfamilienhaus, Keller voll ausgebrannt"
-    verletzte: Optional[str] = "Keine Verletzten"  # z.B. "4 verletzte Person(en) an RTW übergeben"
-    uebergabe: Optional[str] = None  # z.B. "Einsatzstelle an Anwohner übergeben" oder "Einsatzstelle an Pol übergeben"
+    geraete: Optional[str] = None
+    beschreibung: Optional[str] = None
+    verletzte: Optional[str] = "Keine Verletzten"
+    uebergabe: Optional[str] = None
 
 
 class EigenunfallSchritt(BaseModel):
@@ -97,13 +96,12 @@ class EigenunfallSchritt(BaseModel):
     typ: Literal["eigenunfall"]
     mit_personenschaden: bool
     verletzte: int = 1
-    adresse: str  # Unfallort
+    adresse: str
     ortsteil: str
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
         e: List[FunkEntry] = []
         if self.mit_personenschaden:
-            # Pro Verletzten einen RTW und zusätzlich einen C-Dienst generieren
             rtw_namen = Einheit(typ="RTW", anzahl=max(1, self.verletzte)).generate_names()
             cd_name = Einheit(typ="FD").generate_names()[0]
             rtw_liste = ", ".join(rtw_namen)
@@ -157,14 +155,13 @@ class EigenunfallStatus1Schritt(BaseModel):
     typ: Literal["eigenunfall_status_1"]
     mit_personenschaden: bool
     verletzte: int = 1
-    adresse: str  # Unfallort
+    adresse: str
     ortsteil: str
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
         cd_name = Einheit(typ="FD").generate_names()[0]
         e: List[FunkEntry] = []
         if self.mit_personenschaden:
-            # Pro Verletzten einen RTW und zusätzlich einen C-Dienst generieren
             rtw_namen = Einheit(typ="RTW", anzahl=max(1, self.verletzte)).generate_names()
             rtw_liste = ", ".join(rtw_namen)
             e += [
@@ -216,9 +213,9 @@ class NeueTaetigkeitMitFznSchritt(BaseModel):
     """Neue Tätigkeit mit Fahrzeugnennung während der Anfahrt."""
     typ: Literal["neue_taetigkeit_mit_fzn"]
     fahrzeuge: Optional[list[Einheit]] = None
-    ereignis: str  # z.B. "bewusstlose Person", "Brand"
+    ereignis: str
     sonderrechte: Optional[bool] = True
-    adresse: str  # Neue Adresse
+    adresse: str
     ortsteil: str
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
@@ -228,7 +225,6 @@ class NeueTaetigkeitMitFznSchritt(BaseModel):
             fz_liste, fz_namen = generate_names(self.fahrzeuge)
             last = FunkEntry(actor="LS",
                       message=f"Verstanden, Einsatz unter Nummer {ctx.next_enr()} angelegt. {fz_liste} unterwegs. Sie dann weiter mit Status 4, {ctx.ls} <time> Ende.")
-
 
 
         e: List[FunkEntry] = [
@@ -249,7 +245,6 @@ class NeueTaetigkeitMitFznSchritt(BaseModel):
             last,
             FunkEntry(actor="FZ", status="4"),
         ]
-        # Update Einsatzkontext auf neue Adresse? Das überlässt man dem Aufrufer, hier nur Funksprüche.
         return e
 
 
@@ -294,7 +289,7 @@ class NeueTaetigkeitMitFznStatus1Schritt(BaseModel):
 class NeueTaetigkeitOhneFznSchritt(BaseModel):
     """Neue Tätigkeit ohne Fahrzeugnennung während der Anfahrt."""
     typ: Literal["neue_taetigkeit_ohne_fzn"]
-    ereignis: str  # z.B. "Baum auf Straße", "Ölspur"
+    ereignis: str
     adresse: str
     ortsteil: str
 
@@ -319,7 +314,7 @@ class NeueTaetigkeitOhneFznSchritt(BaseModel):
 
 class IdentischeAdresse(BaseModel):
     """Eine Adresse bestehend aus Straße/Hausnummer und Ortsteil."""
-    typ: Optional[str] = None  # Can be "ankommen" for special case
+    typ: Optional[str] = None
     adresse: Optional[str] = None
     ortsteil: Optional[str] = None
     identisch: Optional[bool] = None
@@ -327,11 +322,10 @@ class IdentischeAdresse(BaseModel):
 class IdentischeEinsatzstelleAnfrageSchritt(BaseModel):
     """Nachfrage nach einer identischen Einsatzstelle."""
     typ: Literal["identische_einsatzstelle_anfrage"]
-    adressen: List[IdentischeAdresse]  # z.B. [{"adresse": "Togostr. 18", "ortsteil": "Wedding", "identisch": False}, {"adresse": "Togostr. 19a", "ortsteil": "Wedding", "identisch": True}]
+    adressen: List[IdentischeAdresse]
     stichwort_typ : str = "Brand"
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
-        # LS fragt an
         ls_frage = f"Der Leitstelle liegen weitere Meldungen über einen {self.stichwort_typ} vor – "
         adr_strings = [f"{a.adresse} in {a.ortsteil}" for a in self.adressen]
         if len(adr_strings) > 1:
@@ -343,7 +337,6 @@ class IdentischeEinsatzstelleAnfrageSchritt(BaseModel):
         
         ls_frage += " – Frage: sind diese Meldungen mit ihrer Einsatzstelle identisch? – kommen"
 
-        # FZ antwortet mit Nachfrage beim SF
         fz_antwort_identisch = []
         sf_antwort_identisch = []
         for a in self.adressen:
@@ -355,17 +348,12 @@ class IdentischeEinsatzstelleAnfrageSchritt(BaseModel):
         sf_antwort_identisch_str = " – ".join(sf_antwort_identisch)
 
         return [
-            # LS ruft FZ
             FunkEntry(actor="LS", message=f"Florian {ctx.fk} von {ctx.ls}, kommen."),
             FunkEntry(actor="FZ", message=f"Hier Florian {ctx.fk}, kommen."),
-            # LS stellt die Frage
             FunkEntry(actor="LS", message=ls_frage),
-            # FZ hält Nachfrage
             FunkEntry(actor="FZ", message=f"{ls_mitteilung} Ich halte Nachfrage, kommen."),
-            # LS bestätigt
             FunkEntry(actor="LS", message=f"Verstanden, {ctx.ls} <time>, Ende."),
             
-            # FZ fragt SF (intern)
             FunkEntry(actor="FZ", message=f"Staffelführer {ctx.fk} von Melder {ctx.fk} kommen."),
             FunkEntry(actor="SF", message=f"Hier Staffelführer {ctx.fk}, kommen."),
             FunkEntry(actor="FZ", message=f"{ls_mitteilung} Frage: Sind diese Meldungen identisch? Kommen."),
@@ -378,7 +366,6 @@ class IdentischeEinsatzstelleAnfrageSchritt(BaseModel):
             FunkEntry(actor="FZ", message=f"{sf_antwort_identisch_str}, kommen."),
             FunkEntry(actor="SF", message=f"So recht, Ende."),
 
-            # FZ meldet an LS zurück
             FunkEntry(actor="FZ", status="0"),
             FunkEntry(actor="LS", message=f"Florian {ctx.fk} Sprechwunsch, kommen."),
             FunkEntry(actor="FZ", message=f"Hier Florian {ctx.fk} zur Nachfrage der weiteren Einsatzstellen, kommen."),
@@ -390,7 +377,7 @@ class IdentischeEinsatzstelleAnfrageSchritt(BaseModel):
 class EinsatzstellenkorrekturSchritt(BaseModel):
     """Einsatzstellenkorrektur während der Anfahrt."""
     typ: Literal["einsatzstellenkorrektur"]
-    adresse: str  # Neue Adresse (nur Hausnummer anders)
+    adresse: str
     ortsteil: str
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
@@ -430,7 +417,7 @@ class AnkommenSchritt(BaseModel):
 class KurzlagemeldungFMSSchritt(BaseModel):
     """Kurzlagemeldung über FMS an der Einsatzstelle."""
     typ: Literal["kurzlagemeldung_fms"]
-    text: str  # z.B. "Müco, 1 C-Rohr, EstuK" oder "Fehlalarm BMA"
+    text: str
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
         return [
@@ -489,7 +476,6 @@ class LagemeldungSchritt(BaseModel):
         teile_sf = filter_lm_parts(lm)
         random.shuffle(teile_sf)
 
-        # LS Meldung fixiert
         ls_parts = []
         if lm.lage:
             ls_parts.append(lm.lage)
@@ -543,9 +529,11 @@ class OhneLagemeldungSchritt(BaseModel):
 
 
 class NachalarmierungFahrzeugeSchritt(BaseModel):
-    """Nachalarmierung von spezifischen Fahrzeugen an der Einsatzstelle."""
+    """Nachalarmierung von spezifischen Fahrzeugen an der Einsatzstelle.
+
+    `fahrzeuge` are the vehicles alerted in addition.
+    """
     typ: Literal["nachalarmierung_fahrzeuge"]
-    # Die Fahrzeuge die nachalarmiert werden
     fahrzeuge: List[Einheit]
     begruendung: str
 
@@ -568,11 +556,13 @@ class NachalarmierungFahrzeugeSchritt(BaseModel):
 
 
 class NachalarmierungSchritt(BaseModel):
-    """Nachalarmierung an der Einsatzstelle."""
+    """Nachalarmierung an der Einsatzstelle.
+
+    `fahrzeuge` are the vehicles the additional alerting brings along, if any.
+    """
     typ: Literal["nachalarmierung"]
-    # Die Fahrzeuge die durch die Nachalarmierung zusätzlich alarmiert werden.
     fahrzeuge: Optional[List[Einheit]] = None
-    stichwort: str  # z.B. "Brand 4"
+    stichwort: str
     begruendung: str
 
     def generate_entries(self, ctx: FunkContext) -> List[FunkEntry]:
@@ -626,7 +616,6 @@ class FehlalarmLagemeldungSchritt(BaseModel):
         ]
 
 
-# Union aller möglichen Schritte
 from typing import Union
 
 Schritt = Union[
@@ -658,7 +647,6 @@ class Einsatz(BaseModel):
     einsatznummer: Optional[str] = None
 
     def generate_alarmierung(self, ctx: FunkContext) -> List[FunkEntry]:
-        # Einheiten-Namen generieren (FD/NEF im Zusatz erwähnen)
         einheiten_namen: List[str] = []
         for e in self.einheiten:
             einheiten_namen.extend(e.generate_names())
@@ -692,6 +680,11 @@ class Scenario(BaseModel):
     einsaetze: List[Einsatz]
 
     def generate_funksprueche(self, fk: str = "FK-01", ls: str = "LS", start_enr: int = 1) -> List[FunkEntry]:
+        """Generate the radio messages of all incidents, each prefixed with `[[E<incident>]][[S<step>]]`.
+
+        Step 0 is the alerting; the scenario steps count from 1. An incident that follows a new task
+        of the vehicle gets no alerting of its own.
+        """
         ctx = FunkContext(
             fk=fk, ls=ls,
             einsatz_adresse="", einsatz_ortsteil="", einsatz_stichwort="",
@@ -700,13 +693,10 @@ class Scenario(BaseModel):
         result: List[FunkEntry] = []
         last_step_type = None
         for i, einsatz in enumerate(self.einsaetze):
-            # Einsatzkontext aktualisieren
             ctx.einsatz_adresse = einsatz.adresse
             ctx.einsatz_ortsteil = einsatz.ortsteil
             ctx.einsatz_stichwort = einsatz.stichwort
 
-            # Alarmierung als Schritt 0 behandeln
-            # Keine extra Alarmierung, wenn der letzte Schritt eine Neue Tätigkeit war
             new_activity_types = ["neue_taetigkeit_mit_fzn", "neue_taetigkeit_mit_fzn_status_1", "neue_taetigkeit_ohne_fzn"]
             if last_step_type not in new_activity_types:
                 alarm_entries = einsatz.generate_alarmierung(ctx)
@@ -715,18 +705,15 @@ class Scenario(BaseModel):
                     entry.message = prefix + (entry.message or "")
                     result.append(entry)
 
-            # Schritte delegiert generieren
             for j, schritt in enumerate(einsatz.schritte):
                 gen = getattr(schritt, "generate_entries", None)
                 if callable(gen):
                     s_entries = gen(ctx)
                     for entry in s_entries:
-                        # Schritte fangen bei 1 an, da 0 die Alarmierung ist
                         prefix = f"[[E{i}]][[S{j + 1}]]"
                         entry.message = prefix + (entry.message or "")
                         result.append(entry)
                 
-                # Typ des letzten Schritts für den nächsten Einsatz merken
                 last_step_type = getattr(schritt, "typ", None)
 
         return result

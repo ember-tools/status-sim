@@ -37,33 +37,28 @@ class TestLeitstelle(unittest.TestCase):
     def test_poll_status_update(self):
         admin_code, vehicle_code, _ = self._create()
 
-        # Register vehicle via poll
         data = self._poll(vehicle_code, "Car1")
         self.assertEqual(data["type"], "status_update")
         self.assertTrue(any(c["name"] == "Car1" for c in data["connections"]))
 
-        # Change status
         self._action(vehicle_code, "Car1", "status", "3")
         data = self._poll(admin_code)
         car1 = next(c for c in data["connections"] if c["name"] == "Car1")
         self.assertEqual(car1["status"], "3")
         self.assertIsNone(car1["special"])
 
-        # Toggle special status 5
         self._action(vehicle_code, "Car1", "status", "5")
         data = self._poll(admin_code)
         car1 = next(c for c in data["connections"] if c["name"] == "Car1")
         self.assertEqual(car1["status"], "3")
         self.assertEqual(car1["special"], "5")
 
-        # Toggle special status 0
         self._action(vehicle_code, "Car1", "status", "0")
         data = self._poll(admin_code)
         car1 = next(c for c in data["connections"] if c["name"] == "Car1")
         self.assertEqual(car1["status"], "3")
         self.assertEqual(car1["special"], "0")
 
-        # Change main status while special is active
         self._action(vehicle_code, "Car1", "status", "4")
         data = self._poll(admin_code)
         car1 = next(c for c in data["connections"] if c["name"] == "Car1")
@@ -73,26 +68,21 @@ class TestLeitstelle(unittest.TestCase):
     def test_private_message(self):
         admin_code, vehicle_code, _ = self._create()
 
-        # Register two vehicles
         self._poll(vehicle_code, "Car1")
         self._poll(vehicle_code, "Car2")
 
-        # Send private message to Car1
         resp = self.client.post(f"/api/leitstelle/{admin_code}/message", json={
             "message": "Hello Car1",
             "target_name": "Car1",
         })
         self.assertEqual(resp.status_code, 200)
 
-        # Car1 should see it in poll messages
         data = self._poll(vehicle_code, "Car1")
         self.assertTrue(any(m["text"] == "Hello Car1" for m in data.get("messages", [])))
 
-        # Car2 should NOT see it
         data = self._poll(vehicle_code, "Car2")
         self.assertFalse(any(m["text"] == "Hello Car1" for m in data.get("messages", [])))
 
-        # Broadcast
         self.client.post(f"/api/leitstelle/{admin_code}/message", json={"message": "Broadcast"})
         data = self._poll(vehicle_code, "Car2")
         self.assertTrue(any(m["text"] == "Broadcast" for m in data.get("messages", [])))
@@ -125,13 +115,11 @@ class TestLeitstelle(unittest.TestCase):
 
         self._poll(vehicle_code, "Car1")
 
-        # Set special status
         self._action(vehicle_code, "Car1", "status", "5")
         data = self._poll(admin_code)
         car1 = next(c for c in data["connections"] if c["name"] == "Car1")
         self.assertEqual(car1["special"], "5")
 
-        # Clear special
         resp = self.client.post(f"/api/leitstelle/{admin_code}/clear_special", json={"target_name": "Car1"})
         self.assertEqual(resp.status_code, 200)
 

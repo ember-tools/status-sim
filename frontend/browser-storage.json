@@ -1,0 +1,14 @@
+{
+  "entries": [
+    {
+      "key": "statussim.dispatch",
+      "purpose": "Je Übung der Name und Funkkanal des Disponenten und ob die Leitstelle Sprechwünsche zusammenfasst; Einträge verfallen nach sieben Tagen.",
+      "kind": "LOCAL_STORAGE"
+    },
+    {
+      "key": "statussim.unit-leader",
+      "purpose": "Je Übung der Name und Funkkanal des Staffelführers; Einträge verfallen nach sieben Tagen.",
+      "kind": "LOCAL_STORAGE"
+    }
+  ]
+}

@@ -9,10 +9,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from api import router  # type: ignore
-from frontend import frontend_directory, mount_frontend  # type: ignore
-from logging_conf import setup_logging  # type: ignore
-from manager import manager  # type: ignore
+from api import router
+from frontend import frontend_directory, mount_frontend
+from logging_conf import setup_logging
+from manager import manager
 
 setup_logging()
 
@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
     tasks = [asyncio.create_task(cleanup_task())]
 
     if os.getenv("DEMO_MODE", "").lower() in ("1", "true", "yes"):
-        from demo import run_demo  # type: ignore
+        from demo import run_demo
 
         tasks.append(asyncio.create_task(run_demo()))
 
