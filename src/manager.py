@@ -10,16 +10,18 @@ ONLINE_TIMEOUT = 15
 CLEANUP_TIMEOUT = 300
 
 REDIS_KEY_PREFIX = "ls:"
+RETENTION_SECONDS = 7 * 24 * 3600
 
 
 class ConnectionManager:
     def __init__(self):
         self.leitstellen: Dict[str, LeitstelleData] = {}
         self.code_to_admin: Dict[str, str] = {}
+        self.last_access: Dict[str, float] = {}
         self._redis = None
 
     # ------------------------------------------------------------------
-    # Redis persistence
+    # Redis persistence and retention
     # ------------------------------------------------------------------
 
     async def init_redis(self, redis_url: str):
@@ -34,8 +36,14 @@ class ConnectionManager:
             self._redis = None
 
     async def _load_all(self):
+        """Restore every exercise from Redis, with its last access derived from the key's remaining lifetime.
+
+        A key without expiry, written before exercises expired, counts as accessed now and gets the
+        full retention.
+        """
         if not self._redis:
             return
+        now = time.time()
         cursor = 0
         while True:
             cursor, keys = await self._redis.scan(cursor=cursor, match=f"{REDIS_KEY_PREFIX}*", count=100)
@@ -46,9 +54,14 @@ class ConnectionManager:
                         continue
                     admin_code = key.removeprefix(REDIS_KEY_PREFIX) if isinstance(key, str) else key.decode().removeprefix(REDIS_KEY_PREFIX)
                     ls = LeitstelleData.model_validate_json(data)
+                    ttl = await self._redis.ttl(key)
+                    if ttl < 0:
+                        await self._redis.expire(key, RETENTION_SECONDS)
+                        ttl = RETENTION_SECONDS
                     self.leitstellen[admin_code] = ls
                     self.code_to_admin[ls.vehicle_code] = admin_code
                     self.code_to_admin[ls.staffelfuehrer_code] = admin_code
+                    self.last_access[admin_code] = now - (RETENTION_SECONDS - ttl)
                 except Exception as e:
                     logger.error(f"Failed to load {key} from Redis: {e}")
             if cursor == 0:
@@ -56,7 +69,20 @@ class ConnectionManager:
         if self.leitstellen:
             logger.info(f"Restored {len(self.leitstellen)} leitstelle(n) from Redis")
 
+    async def touch(self, admin_code: str):
+        """Count an access to an exercise: it lives for another `RETENTION_SECONDS` from now, in memory and in Redis."""
+        self.last_access[admin_code] = time.time()
+        if not self._redis:
+            return
+        try:
+            await self._redis.expire(f"{REDIS_KEY_PREFIX}{admin_code}", RETENTION_SECONDS)
+        except Exception as e:
+            logger.error(f"Failed to renew {admin_code}: {e}")
+
     async def persist(self, admin_code: str):
+        """Write an exercise to Redis, which also renews its retention, or delete it when it is gone."""
+        if admin_code in self.leitstellen:
+            self.last_access[admin_code] = time.time()
         if not self._redis:
             return
         try:
@@ -65,11 +91,27 @@ class ConnectionManager:
                 await self._redis.set(
                     f"{REDIS_KEY_PREFIX}{admin_code}",
                     ls.model_dump_json(exclude={"scenarios"}),
+                    ex=RETENTION_SECONDS,
                 )
             else:
                 await self._redis.delete(f"{REDIS_KEY_PREFIX}{admin_code}")
         except Exception as e:
             logger.error(f"Failed to persist {admin_code}: {e}")
+
+    async def expire_stale(self):
+        """Delete every exercise nobody has accessed for `RETENTION_SECONDS`, with its codes, from memory and Redis."""
+        now = time.time()
+        for admin_code in list(self.leitstellen):
+            last = self.last_access.setdefault(admin_code, now)
+            if now - last < RETENTION_SECONDS:
+                continue
+            ls = self.leitstellen.pop(admin_code)
+            self.last_access.pop(admin_code, None)
+            for code in (ls.vehicle_code, ls.staffelfuehrer_code):
+                if self.code_to_admin.get(code) == admin_code:
+                    del self.code_to_admin[code]
+            await self.persist(admin_code)
+            logger.info(f"Deleted exercise {admin_code} after {RETENTION_SECONDS // 86400} days without access")
 
     async def close(self):
         if self._redis:

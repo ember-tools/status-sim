@@ -43,10 +43,11 @@ async def lifespan(app: FastAPI):
 
 
 async def cleanup_task():
-    """Drop connections nobody has polled for a while, once a minute."""
+    """Once a minute, drop connections nobody has polled for a while and exercises nobody has accessed for seven days."""
     while True:
         await asyncio.sleep(CLEANUP_INTERVAL)
         await manager.cleanup_inactive()
+        await manager.expire_stale()
 
 
 def cors_origins() -> list[str]:
