@@ -16,7 +16,7 @@ from main import app
 
 @pytest.fixture
 def build(tmp_path: Path) -> Path:
-    """A built frontend with the shell, two prerendered pages, `build.json` and one asset."""
+    """A built frontend with the shell, two prerendered pages, `build.json`, the manifest and one asset."""
     directory = tmp_path / "dist"
     (directory / "assets").mkdir(parents=True)
     (directory / "pages" / "hilfe").mkdir(parents=True)
@@ -24,6 +24,7 @@ def build(tmp_path: Path) -> Path:
     (directory / "pages" / "index.html").write_text("<!doctype html><title>landing</title>")
     (directory / "pages" / "hilfe" / "index.html").write_text("<!doctype html><title>help</title>")
     (directory / "build.json").write_text("{}")
+    (directory / "manifest.webmanifest").write_text("{}")
     (directory / "favicon.svg").write_text("<svg/>")
     (directory / "assets" / "app.js").write_text("console.info(1)")
     (tmp_path / "secret.txt").write_text("secret")
@@ -59,6 +60,10 @@ def test_built_files_are_served(client):
 
 def test_build_json_is_never_cached(client):
     assert client.get("/build.json").headers["cache-control"] == "no-store"
+
+
+def test_the_manifest_has_its_media_type(client):
+    assert client.get("/manifest.webmanifest").headers["content-type"] == "application/manifest+json"
 
 
 def test_other_paths_get_the_shell_kept_out_of_search_engines(client):

@@ -10,6 +10,7 @@ export default defineConfig({
         emberbox({
             url: 'https://statussim.emberbox.app',
             logo: 'statussim',
+            app: {name: 'Status Sim', description: 'Funkverkehr und Fahrzeugstatus üben.'},
             router: false,
             prerender: {entry: 'src/prerender.ts', paths: ['/', '/hilfe']},
         }),
